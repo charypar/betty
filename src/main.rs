@@ -1,23 +1,56 @@
 use chrono::{DateTime, Utc};
+use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 
 fn main() {
-    println!("Hello, world!");
+    let market = Market {
+        code: "UKX".to_string(),
+        min_deal_size: CurrencyAmount((dec!(0.50), "GBP".to_string())),
+        min_stop_distance: dec!(8),
+        margin_factor: 20,
+        resolution: Resolution::Minute(10),
+        history: vec![],
+    };
+
+    let strategy = Strategy {
+        short_trend_length: 5,
+        long_trend_length: 20,
+        limit_channel_length: 20,
+    };
+
+    let log = trade(
+        market,
+        strategy,
+        CurrencyAmount((dec!(10000.00), "GBP".to_string())),
+        3,
+    );
+
+    for trade in log {
+        println!("{:?}", trade);
+    }
 }
 
-struct CurrencyAmount {
-    code: String,
-    amount: u128,
+pub fn trade(
+    market: Market,
+    strategy: Strategy,
+    capital: CurrencyAmount,
+    risk_per_trade: usize,
+) -> Log {
+    Log {
+        market,
+        initial_capital: capital,
+        risk_per_trade, // percentage point
+        strategy,
+        trades: vec![],
+    }
 }
 
-// A smallest possible price increment
-type Ticks = u64;
+#[derive(Debug)]
+pub struct CurrencyAmount((Decimal, String));
 
 // Point value with fixed decimal place position
 // Different instruments will differ in this
-type Points = (Ticks, usize);
-
-// Price per point used for instrument and trad sizing
-type PricePerPoint = u64; // in pence
+type Points = Decimal;
 
 // Spot price of an instrument. Excuse my finance n00b comments
 struct MarketPrice {
@@ -35,16 +68,10 @@ struct Frame {
     open_time: DateTime<Utc>,
 }
 
-struct Rules {
-    min_deal_size: Points,
-    stop_distance_limts: (Points, Points), // min, max
-}
+struct Rules {}
 
-struct Instrument {
-    code: String,
-    contract_size: PricePerPoint,
-    margin_factor: u64,
-}
+#[derive(Debug)]
+struct Instrument {}
 
 enum Resolution {
     Second,
@@ -55,50 +82,60 @@ enum Resolution {
     Month,
 }
 
-struct History {
+pub struct Market {
+    code: String,
+    margin_factor: u64,
+    min_deal_size: CurrencyAmount,
+    min_stop_distance: Points,
     resolution: Resolution,
-    frames: Vec<Frame>, // in reverse order - first frame is the most recent
-}
-
-struct Market {
-    rules: Rules,
-    instrument: Instrument,
-    history: History,
+    history: Vec<Frame>, // in reverse order - first frame is the most recent
 }
 
 // Trade
-
+#[derive(Debug)]
 enum Direction {
     Buy,
     Sell,
 }
 
+#[derive(Debug)]
 struct Order {
     direction: Direction,
     price: Points,
     time: DateTime<Utc>,
 }
 
-struct Trade {
+#[derive(Debug)]
+pub struct Trade {
     instrument: Instrument,
     direction: Direction,
     entry: Order,
     exit: Option<Order>,
-    size: PricePerPoint,
+    size: CurrencyAmount,
     stop: Points,
 }
 
 // Strategy
 
-struct Strategy {
+pub struct Strategy {
     short_trend_length: usize,
     long_trend_length: usize,
     limit_channel_length: usize,
 }
-struct Log {
+
+pub struct Log {
     market: Market,
     initial_capital: CurrencyAmount,
     risk_per_trade: usize, // percentage point
     strategy: Strategy,
     trades: Vec<Trade>,
+}
+
+impl IntoIterator for Log {
+    type Item = Trade;
+    type IntoIter = std::vec::IntoIter<Self::Item>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.trades.into_iter()
+    }
 }
