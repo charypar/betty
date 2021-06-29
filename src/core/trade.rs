@@ -2,27 +2,27 @@ use chrono::{DateTime, Utc};
 
 use super::price::{CurrencyAmount, Points};
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Direction {
     Buy,
     Sell,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct Entry {
-    position_id: String,
-    direction: Direction,
-    price: Points,
-    stop: Points,
-    size: CurrencyAmount,
-    time: DateTime<Utc>,
+    pub position_id: String,
+    pub direction: Direction,
+    pub price: Points,
+    pub stop: Points,
+    pub size: CurrencyAmount,
+    pub time: DateTime<Utc>,
 }
 
 #[derive(Debug)]
 pub struct Exit {
-    position_id: String,
-    price: Points,
-    time: DateTime<Utc>,
+    pub position_id: String,
+    pub price: Points,
+    pub time: DateTime<Utc>,
 }
 
 #[derive(Debug)]

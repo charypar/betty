@@ -1,7 +1,7 @@
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct CurrencyAmount(pub (Decimal, String));
 
 // Point value with fixed decimal place position
