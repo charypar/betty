@@ -19,6 +19,7 @@ name = "betty"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "iso_currency",
  "rust_decimal",
  "rust_decimal_macros",
 ]
@@ -35,6 +36,30 @@ dependencies = [
  "time",
  "winapi",
 ]
+
+[[package]]
+name = "iso_country"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "20633e788d3948ea7336861fdb09ec247f5dae4267e8f0743fa97de26c28624d"
+dependencies = [
+ "lazy_static",
+]
+
+[[package]]
+name = "iso_currency"
+version = "0.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2715e2fd53aebba2840144b1b179baddf46de296664662f0168f4b0beaccfb7c"
+dependencies = [
+ "iso_country",
+]
+
+[[package]]
+name = "lazy_static"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e2abad23fbc42b3700f2f279844dc832adb2b2eb069b2df918f455c4e18cc646"
 
 [[package]]
 name = "libc"

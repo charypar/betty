@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 
 use super::price::{CurrencyAmount, Points};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum Direction {
     Buy,
     Sell,

@@ -1,16 +1,17 @@
 mod core;
 
+use iso_currency::Currency;
+use rust_decimal_macros::dec;
+
 use crate::core::market::Market;
 use crate::core::price::CurrencyAmount;
 use crate::core::strategy::{RiskStrategy, TradingStrategy};
 use crate::core::Account;
 
-use rust_decimal_macros::dec;
-
 fn main() {
     let market = Market {
         code: "UKX".to_string(),
-        min_deal_size: CurrencyAmount((dec!(0.50), "GBP".to_string())),
+        min_deal_size: CurrencyAmount::new(dec!(0.50), Currency::GBP),
         min_stop_distance: dec!(8),
         margin_factor: 20,
     };
@@ -29,7 +30,7 @@ fn main() {
         market,
         ts,
         rs,
-        CurrencyAmount((dec!(10000.00), "GBP".to_string())),
+        CurrencyAmount::new(dec!(10000.00), Currency::GBP),
     );
 
     // TODO feed in a price history and log resulting orders
