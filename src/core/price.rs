@@ -23,7 +23,10 @@ impl Mul<Decimal> for CurrencyAmount {
     type Output = CurrencyAmount;
 
     fn mul(self, rhs: Decimal) -> Self::Output {
-        Self::Output::new((self.amount * rhs).round_dp(CURRENCY_DECIMAL_PLACES), self.currency)
+        Self::Output::new(
+            (self.amount * rhs).round_dp(CURRENCY_DECIMAL_PLACES),
+            self.currency,
+        )
     }
 }
 
@@ -31,7 +34,22 @@ impl Div<Decimal> for CurrencyAmount {
     type Output = CurrencyAmount;
 
     fn div(self, rhs: Decimal) -> Self::Output {
-        Self::Output::new((self.amount / rhs).round_dp(CURRENCY_DECIMAL_PLACES), self.currency)
+        Self::Output::new(
+            (self.amount / rhs).round_dp(CURRENCY_DECIMAL_PLACES),
+            self.currency,
+        )
+    }
+}
+
+impl Div<CurrencyAmount> for CurrencyAmount {
+    type Output = Option<Decimal>;
+
+    fn div(self, rhs: CurrencyAmount) -> Self::Output {
+        if self.currency == rhs.currency {
+            self.amount.checked_div(rhs.amount)
+        } else {
+            None
+        }
     }
 }
 

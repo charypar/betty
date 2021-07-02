@@ -4,7 +4,7 @@ use iso_currency::Currency;
 use rust_decimal_macros::dec;
 
 use crate::core::market::Market;
-use crate::core::price::CurrencyAmount;
+use crate::core::price::{CurrencyAmount, Price};
 use crate::core::strategy::{RiskStrategy, TradingStrategy};
 use crate::core::Account;
 
@@ -34,8 +34,12 @@ fn main() {
     );
 
     // TODO feed in a price history and log resulting orders
+    let latest_price = Price {
+        bid: dec!(110),
+        ask: dec!(110),
+    };
 
-    for trade in account.trade_log() {
+    for trade in account.trade_log(latest_price) {
         println!("{:?}", trade);
     }
 }
