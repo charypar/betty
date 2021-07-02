@@ -19,14 +19,14 @@ pub struct Entry {
     pub time: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Exit {
     pub position_id: String,
     pub price: Points,
     pub time: DateTime<Utc>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Order {
     Open(Entry),
     Close(Exit),

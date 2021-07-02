@@ -4,7 +4,7 @@ use iso_currency::Currency;
 use rust_decimal_macros::dec;
 
 use crate::core::market::Market;
-use crate::core::price::{CurrencyAmount, Price};
+use crate::core::price::{CurrencyAmount, Price, Resolution};
 use crate::core::strategy::{Donchian, MACD};
 use crate::core::Account;
 
@@ -28,6 +28,7 @@ fn main() {
         ts,
         rs,
         CurrencyAmount::new(dec!(10000.00), Currency::GBP),
+        Resolution::Minute(10),
     );
 
     // TODO feed in a price history and log resulting orders

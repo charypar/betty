@@ -103,10 +103,13 @@ impl RiskStrategy for Donchian {
 
         // The lower end of the channel is a bid price - we are selling to exit a long position that didn't go our way
         // The higher end of the channel is an ask price - we are buying to exit a short position that didn't go our way
-        let channel_limits = history.history[1..self.channel_length].iter().fold(
-            (history.history[0].low.bid, history.history[0].high.ask),
-            |limits, frame| (min(limits.0, frame.low.bid), max(limits.1, frame.high.ask)),
-        );
+        let channel_limits = (&history.history)
+            .into_iter()
+            .take(self.channel_length)
+            .fold(
+                (history.history[0].low.bid, history.history[0].high.ask),
+                |limits, frame| (min(limits.0, frame.low.bid), max(limits.1, frame.high.ask)),
+            );
 
         let stop = match direction {
             Direction::Buy => channel_limits.0,
@@ -322,7 +325,7 @@ mod test {
 
         PriceHistory {
             resolution,
-            history,
+            history: history.into(),
         }
     }
 }

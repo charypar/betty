@@ -3,10 +3,12 @@ pub mod price;
 pub mod strategy;
 pub mod trade;
 
+use std::collections::VecDeque;
+
 use self::market::Market;
 use self::price::{CurrencyAmount, Frame, Price, PriceHistory, Resolution};
 use self::strategy::{RiskStrategy, TradingStrategy};
-use self::trade::{Order, Trade};
+use self::trade::{Direction, Exit, Order, Trade, TradeStatus};
 
 // Account holds the state of the trading account and history of all the orders placed
 // in response to price updates.
@@ -20,7 +22,7 @@ where
     pub price_history: PriceHistory,
     pub trading_strategy: TS,
     pub risk_strategy: RS,
-    pub orders: Vec<Order>,
+    orders: Vec<Order>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -38,6 +40,7 @@ where
         trading_strategy: TS,
         risk_strategy: RS,
         opening_balance: CurrencyAmount,
+        resolution: Resolution,
     ) -> Self {
         Account {
             opening_balance,
@@ -46,12 +49,13 @@ where
             risk_strategy,
             orders: vec![],
             price_history: PriceHistory {
-                resolution: Resolution::Minute(10),
-                history: vec![],
+                resolution,
+                history: VecDeque::new(),
             },
         }
     }
 
+    // FIXME make the trade log calculation incremental on price update
     pub fn trade_log(&self, latest_price: Price) -> Vec<Trade> {
         if self.orders.len() < 1 {
             return vec![];
@@ -88,9 +92,38 @@ where
     }
 
     // Add new price information
-    // This potentially results in a new order to be placed
-    pub fn update_price(&mut self, frame: Frame) -> Option<Order> {
-        todo!()
+    // This potentially results in new orders to be executed
+    pub fn update_price(&mut self, frame: Frame) -> Option<Vec<Order>> {
+        self.price_history.history.push_front(frame);
+
+        // Trigger stops
+        let orders: Vec<Order> = self
+            .trade_log(frame.close)
+            .into_iter()
+            .filter_map(|t| match t.direction {
+                Direction::Buy if t.status == TradeStatus::Open && frame.low.bid < t.stop => {
+                    Some(Order::Stop(Exit {
+                        position_id: t.id,
+                        price: frame.low.bid,
+                        time: frame.open_time + self.price_history.resolution,
+                    }))
+                }
+                Direction::Sell if t.status == TradeStatus::Open && frame.high.ask > t.stop => {
+                    Some(Order::Stop(Exit {
+                        position_id: t.id,
+                        price: frame.high.ask,
+                        time: frame.open_time + self.price_history.resolution,
+                    }))
+                }
+                _ => None,
+            })
+            .collect();
+
+        if orders.len() > 0 {
+            return Some(orders);
+        }
+
+        None
     }
 
     // Log an order that has been placed
@@ -125,6 +158,75 @@ mod test {
     use chrono::{DateTime, Duration, TimeZone, Timelike, Utc};
     use iso_currency::Currency::GBP;
     use rust_decimal_macros::dec;
+
+    // Trading
+
+    #[test]
+    fn logs_a_price_update() {
+        let mut account = account();
+        let expected = Frame {
+            open: Price::new_mid(dec!(100), dec!(1)),
+            close: Price::new_mid(dec!(200), dec!(1)),
+            low: Price::new_mid(dec!(50), dec!(1)),
+            high: Price::new_mid(dec!(150), dec!(1)),
+            open_time: date(),
+        };
+        account.update_price(expected);
+
+        let actual = account.price_history.history[0];
+
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn triggers_a_stop() -> Result<(), AccountError> {
+        let mut account = account();
+
+        let open_1 = Entry {
+            position_id: "1".to_string(),
+            direction: Direction::Buy,
+            price: dec!(100),
+            stop: dec!(90),
+            size: CurrencyAmount::new(dec!(2), GBP),
+            time: date(),
+        };
+        let close_1 = Exit {
+            position_id: "1".to_string(),
+            price: dec!(89), // slippage
+            time: date() + Duration::minutes(10),
+        };
+        account.log_order(Order::Open(open_1))?;
+        account.log_order(Order::Close(close_1))?;
+
+        let open = Entry {
+            position_id: "2".to_string(),
+            direction: Direction::Buy,
+            price: dec!(100),
+            stop: dec!(90),
+            size: CurrencyAmount::new(dec!(1), GBP),
+            time: date(),
+        };
+        account.log_order(Order::Open(open.clone()))?;
+
+        let price = Frame {
+            open: Price::new_mid(dec!(100), dec!(1)),
+            close: Price::new_mid(dec!(200), dec!(1)),
+            low: Price::new_mid(dec!(50), dec!(1)),
+            high: Price::new_mid(dec!(150), dec!(1)),
+            open_time: date() + Duration::minutes(10),
+        };
+
+        let actual = account.update_price(price);
+        let expected = Some(vec![Order::Stop(Exit {
+            position_id: "2".to_string(),
+            price: dec!(49.5),
+            time: date() + Duration::minutes(20),
+        })]);
+
+        Ok(assert_eq!(actual, expected))
+    }
+
+    // Trade log
 
     #[test]
     fn gives_an_empty_trade_log_for_no_orders() {
@@ -339,6 +441,7 @@ mod test {
             trading_strategy(),
             risk_strategy(),
             CurrencyAmount::new(dec!(1000), GBP),
+            Resolution::Minute(10),
         )
     }
 

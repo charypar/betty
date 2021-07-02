@@ -1,4 +1,7 @@
-use std::ops::{Add, Div, Mul, Sub};
+use std::{
+    collections::VecDeque,
+    ops::{Add, Div, Mul, Sub},
+};
 
 use chrono::{DateTime, Datelike, Duration, TimeZone, Timelike, Utc};
 use iso_currency::Currency;
@@ -89,7 +92,7 @@ impl Sub for Price {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Frame {
     pub close: Price,
     pub high: Price,
@@ -134,7 +137,7 @@ where
 
 pub struct PriceHistory {
     pub resolution: Resolution,
-    pub history: Vec<Frame>, // in reverse order - first frame is the most recent
+    pub history: VecDeque<Frame>, // in reverse order - first frame is the most recent
 }
 
 #[cfg(test)]
