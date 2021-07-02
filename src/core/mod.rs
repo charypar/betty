@@ -10,12 +10,16 @@ use self::trade::{Order, Trade};
 
 // Account holds the state of the trading account and history of all the orders placed
 // in response to price updates.
-pub struct Account {
+pub struct Account<TS, RS>
+where
+    TS: TradingStrategy,
+    RS: RiskStrategy,
+{
     pub opening_balance: CurrencyAmount,
     pub market: Market,
     pub price_history: PriceHistory,
-    pub trading_strategy: TradingStrategy,
-    pub risk_strategy: RiskStrategy,
+    pub trading_strategy: TS,
+    pub risk_strategy: RS,
     pub orders: Vec<Order>,
 }
 
@@ -24,11 +28,15 @@ pub enum AccountError {
     NoMatchingEntry(String),
 }
 
-impl Account {
+impl<TS, RS> Account<TS, RS>
+where
+    TS: TradingStrategy,
+    RS: RiskStrategy,
+{
     pub fn new(
         market: Market,
-        trading_strategy: TradingStrategy,
-        risk_strategy: RiskStrategy,
+        trading_strategy: TS,
+        risk_strategy: RS,
         opening_balance: CurrencyAmount,
     ) -> Self {
         Account {
@@ -107,6 +115,9 @@ impl Account {
 
 #[cfg(test)]
 mod test {
+
+    use crate::core::price::Price;
+    use crate::core::strategy::{Donchian, MACD};
     use crate::core::trade::{Direction, Entry, Exit, TradeOutcome, TradeStatus};
 
     use super::*;
@@ -322,7 +333,7 @@ mod test {
 
     // Fixtures
 
-    fn account() -> Account {
+    fn account() -> Account<MACD, Donchian> {
         Account::new(
             market(),
             trading_strategy(),
@@ -340,18 +351,15 @@ mod test {
         }
     }
 
-    fn trading_strategy() -> TradingStrategy {
-        TradingStrategy {
+    fn trading_strategy() -> MACD {
+        MACD {
             short_trend_length: 5,
             long_trend_length: 20,
         }
     }
 
-    fn risk_strategy() -> RiskStrategy {
-        RiskStrategy {
-            channel_length: 20,
-            risk_per_trade: dec!(3),
-        }
+    fn risk_strategy() -> Donchian {
+        Donchian { channel_length: 20 }
     }
 
     fn date() -> DateTime<Utc> {

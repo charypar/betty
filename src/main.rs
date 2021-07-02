@@ -5,7 +5,7 @@ use rust_decimal_macros::dec;
 
 use crate::core::market::Market;
 use crate::core::price::{CurrencyAmount, Price};
-use crate::core::strategy::{RiskStrategy, TradingStrategy};
+use crate::core::strategy::{Donchian, MACD};
 use crate::core::Account;
 
 fn main() {
@@ -16,15 +16,12 @@ fn main() {
         margin_factor: 20,
     };
 
-    let ts = TradingStrategy {
+    let ts = MACD {
         short_trend_length: 5,
         long_trend_length: 20,
     };
 
-    let rs = RiskStrategy {
-        channel_length: 20,
-        risk_per_trade: dec!(3),
-    };
+    let rs = Donchian { channel_length: 20 };
 
     let account = Account::new(
         market,
