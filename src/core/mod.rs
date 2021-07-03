@@ -91,30 +91,40 @@ where
     pub fn update_price(&mut self, frame: Frame) -> Vec<Order> {
         self.price_history.history.push_front(frame);
 
+        let time = frame.open_time + self.price_history.resolution;
         let signal = self.trading_strategy.signal(&self.price_history);
+        let open_trades = self
+            .trade_log(frame.close)
+            .into_iter()
+            .filter(|t| t.status == TradeStatus::Open);
+
         let mut orders = vec![];
 
-        for t in self.trade_log(frame.close) {
-            // Trigger stops
+        for t in open_trades {
+            // Stop
             match t.direction {
-                Direction::Buy if t.status == TradeStatus::Open && frame.low.bid < t.stop => {
-                    orders.push(Order::Stop(Exit {
-                        position_id: t.id,
-                        price: frame.low.bid,
-                        time: frame.open_time + self.price_history.resolution,
-                    }));
+                Direction::Buy if frame.low.bid < t.stop => {
+                    orders.push(Order::Stop(t.exit(frame.close, time)));
                 }
-                Direction::Sell if t.status == TradeStatus::Open && frame.high.ask > t.stop => {
-                    orders.push(Order::Stop(Exit {
-                        position_id: t.id,
-                        price: frame.high.ask,
-                        time: frame.open_time + self.price_history.resolution,
-                    }));
+                Direction::Sell if frame.high.ask > t.stop => {
+                    orders.push(Order::Stop(t.exit(frame.close, time)));
                 }
-                _ => continue,
+                _ => (),
+            }
+
+            // Exit
+            match signal {
+                Some(Signal::Exit(direction)) if t.direction == direction => {
+                    orders.push(Order::Close(t.exit(frame.close, time)));
+                }
+                Some(Signal::Enter(direction)) if t.direction != direction => {
+                    orders.push(Order::Close(t.exit(frame.close, time)));
+                }
+                _ => (),
             }
         }
 
+        // Enter a new trade on signal
         if let Some(Signal::Enter(direction)) = &signal {
             let risk = self.opening_balance * self.risk_per_trade;
 
@@ -205,7 +215,7 @@ where
 mod test {
 
     use crate::core::price::Price;
-    use crate::core::strategy::{Donchian, MACD};
+    use crate::core::strategy::Donchian;
     use crate::core::trade::{Direction, Entry, Exit, TradeOutcome, TradeStatus};
 
     use super::strategy::{RiskStrategyError, Signal};
@@ -275,7 +285,7 @@ mod test {
         let actual = account.update_price(price);
         let expected = vec![Order::Stop(Exit {
             position_id: "2".to_string(),
-            price: dec!(49.5),
+            price: dec!(199.5),
             time: date() + Duration::minutes(20),
         })];
 
@@ -325,18 +335,153 @@ mod test {
     }
 
     #[test]
-    fn closes_a_position_based_on_an_exit_signal() {
-        todo!()
+    fn closes_a_position_based_on_an_exit_signal() -> Result<(), AccountError> {
+        let long = LongExit {};
+        let mut long_account = Account::new(
+            market(),
+            long,
+            risk_strategy(),
+            dec!(0.01),
+            CurrencyAmount::new(dec!(1000), GBP),
+            Resolution::Minute(10),
+        );
+        let long_open = Entry {
+            position_id: "1".to_string(),
+            direction: Direction::Buy,
+            price: dec!(40),
+            stop: dec!(30),
+            size: CurrencyAmount::new(dec!(1), GBP),
+            time: date(),
+        };
+        long_account.log_order(Order::Open(long_open.clone()))?;
+
+        let short = ShortExit {};
+        let mut short_account = Account::new(
+            market(),
+            short,
+            risk_strategy(),
+            dec!(0.01),
+            CurrencyAmount::new(dec!(1000), GBP),
+            Resolution::Minute(10),
+        );
+        let short_open = Entry {
+            position_id: "1".to_string(),
+            direction: Direction::Sell,
+            price: dec!(250),
+            stop: dec!(260),
+            size: CurrencyAmount::new(dec!(1), GBP),
+            time: date(),
+        };
+        short_account.log_order(Order::Open(short_open.clone()))?;
+
+        let expected_long = vec![Order::Close(Exit {
+            position_id: "1".to_string(),
+            price: dec!(199.5),
+            time: date() + Duration::minutes(10),
+        })];
+        let actual_long = long_account.update_price(frame());
+
+        assert_eq!(actual_long, expected_long);
+
+        let expected_short = vec![Order::Close(Exit {
+            position_id: "1".to_string(),
+            price: dec!(200.5),
+            time: date() + Duration::minutes(10),
+        })];
+        let actual_short = short_account.update_price(frame());
+
+        assert_eq!(actual_short, expected_short);
+
+        Ok(())
     }
 
     #[test]
-    fn closes_a_position_based_on_an_opposite_entry_signal() {
-        todo!()
-    }
+    fn reverses_a_positon_based_on_an_entry_signal() -> Result<(), ()> {
+        let long = ShortEntry {};
+        let mut long_account = Account::new(
+            market(),
+            long,
+            risk_strategy(),
+            dec!(0.01),
+            CurrencyAmount::new(dec!(1000), GBP),
+            Resolution::Minute(10),
+        );
+        let long_open = Entry {
+            position_id: "1".to_string(),
+            direction: Direction::Buy,
+            price: dec!(40),
+            stop: dec!(30),
+            size: CurrencyAmount::new(dec!(1), GBP),
+            time: date(),
+        };
+        long_account
+            .log_order(Order::Open(long_open.clone()))
+            .map_err(|_| ())?;
 
-    #[test]
-    fn reverses_a_positon_based_on_an_entry_signal() {
-        todo!()
+        let short = LongEntry {};
+        let mut short_account = Account::new(
+            market(),
+            short,
+            risk_strategy(),
+            dec!(0.01),
+            CurrencyAmount::new(dec!(1000), GBP),
+            Resolution::Minute(10),
+        );
+        let short_open = Entry {
+            position_id: "1".to_string(),
+            direction: Direction::Sell,
+            price: dec!(250),
+            stop: dec!(260),
+            size: CurrencyAmount::new(dec!(1), GBP),
+            time: date(),
+        };
+        short_account
+            .log_order(Order::Open(short_open.clone()))
+            .map_err(|_| ())?;
+
+        let expected_long = vec![
+            Order::Close(Exit {
+                position_id: "1".to_string(),
+                price: dec!(199.5),
+                time: date() + Duration::minutes(10),
+            }),
+            Order::Open(
+                long_account
+                    .risk_strategy
+                    .entry(
+                        Direction::Sell,
+                        &history(),
+                        CurrencyAmount::new(dec!(10), GBP),
+                    )
+                    .map_err(|_| ())?,
+            ),
+        ];
+        let actual_long = long_account.update_price(frame());
+
+        assert_eq!(actual_long, expected_long);
+
+        let expected_short = vec![
+            Order::Close(Exit {
+                position_id: "1".to_string(),
+                price: dec!(200.5),
+                time: date() + Duration::minutes(10),
+            }),
+            Order::Open(
+                short_account
+                    .risk_strategy
+                    .entry(
+                        Direction::Buy,
+                        &history(),
+                        CurrencyAmount::new(dec!(10), GBP),
+                    )
+                    .map_err(|_| ())?,
+            ),
+        ];
+        let actual_short = short_account.update_price(frame());
+
+        assert_eq!(actual_short, expected_short);
+
+        Ok(())
     }
 
     // Trade log
@@ -506,6 +651,8 @@ mod test {
 
         Ok(())
     }
+
+    // Order validation
 
     #[test]
     fn does_not_allow_to_log_a_close_order_without_matching_open() -> Result<(), AccountError> {
@@ -696,7 +843,7 @@ mod test {
             close: Price::new_mid(dec!(200), dec!(1)),
             low: Price::new_mid(dec!(50), dec!(1)),
             high: Price::new_mid(dec!(150), dec!(1)),
-            open_time: date() + Duration::minutes(10),
+            open_time: date(),
         }
     }
 

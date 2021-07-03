@@ -1,4 +1,4 @@
-use chrono::{DateTime, Utc};
+use chrono::{Date, DateTime, Utc};
 use rust_decimal::Decimal;
 
 use super::price::{CurrencyAmount, Points, Price};
@@ -121,6 +121,17 @@ impl Trade {
             price_diff,
             balance,
             risk_reward: (balance / risk).unwrap(), // both numbers are derived from o.size
+        }
+    }
+
+    pub fn exit(&self, price: Price, time: DateTime<Utc>) -> Exit {
+        Exit {
+            position_id: self.id.clone(),
+            price: match self.direction {
+                Direction::Buy => price.bid,
+                Direction::Sell => price.ask,
+            },
+            time,
         }
     }
 }
