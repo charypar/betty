@@ -8,7 +8,12 @@ use super::price::{CurrencyAmount, Points, PriceHistory};
 use super::trade::{Direction, Entry};
 
 pub trait TradingStrategy {
-    fn signal(history: &PriceHistory) -> Option<Direction>;
+    fn signal(&self, history: &PriceHistory) -> Option<Signal>;
+}
+
+pub enum Signal {
+    Enter(Direction), // Also considered an exit signal for the opposite direction
+    Exit(Direction),  // Exit only
 }
 
 // TradingStrategy produces buy and sell signals
@@ -18,7 +23,7 @@ pub struct MACD {
 }
 
 impl TradingStrategy for MACD {
-    fn signal(history: &PriceHistory) -> Option<Direction> {
+    fn signal(&self, history: &PriceHistory) -> Option<Signal> {
         todo!()
     }
 }

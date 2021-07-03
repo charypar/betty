@@ -5,10 +5,12 @@ pub mod trade;
 
 use std::collections::VecDeque;
 
+use rust_decimal::Decimal;
+
 use self::market::Market;
 use self::price::{CurrencyAmount, Frame, Price, PriceHistory, Resolution};
-use self::strategy::{RiskStrategy, TradingStrategy};
-use self::trade::{Direction, Exit, Order, Trade, TradeStatus};
+use self::strategy::{RiskStrategy, Signal, TradingStrategy};
+use self::trade::{Direction, Entry, Exit, Order, Trade, TradeStatus};
 
 // Account holds the state of the trading account and history of all the orders placed
 // in response to price updates.
@@ -22,12 +24,15 @@ where
     pub price_history: PriceHistory,
     pub trading_strategy: TS,
     pub risk_strategy: RS,
+    pub risk_per_trade: Decimal,
     orders: Vec<Order>,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum AccountError {
     NoMatchingEntry(String),
+    DuplicatePosition(String),
+    PositionAlreadyClosed(String),
 }
 
 impl<TS, RS> Account<TS, RS>
@@ -39,6 +44,7 @@ where
         market: Market,
         trading_strategy: TS,
         risk_strategy: RS,
+        risk_per_trade: Decimal,
         opening_balance: CurrencyAmount,
         resolution: Resolution,
     ) -> Self {
@@ -47,6 +53,7 @@ where
             market,
             trading_strategy,
             risk_strategy,
+            risk_per_trade,
             orders: vec![],
             price_history: PriceHistory {
                 resolution,
@@ -55,30 +62,22 @@ where
         }
     }
 
-    // FIXME make the trade log calculation incremental on price update
     pub fn trade_log(&self, latest_price: Price) -> Vec<Trade> {
         if self.orders.len() < 1 {
             return vec![];
         }
 
-        let (mut entries, mut exits) = (vec![], vec![]);
-        for order in &self.orders {
-            match order {
-                Order::Open(en) => entries.push(en.clone()),
-                Order::Close(ex) | Order::Stop(ex) => exits.push(ex.clone()),
-            }
-        }
-
-        let mut trades: Vec<Trade> = (&entries)
-            .into_iter()
-            .map(|entry| {
-                (&exits)
-                    .into_iter()
-                    .find(|exit| exit.position_id == entry.position_id)
-                    .map_or_else(
-                        || Trade::open(entry, latest_price),
-                        |exit| Trade::closed(entry, exit),
-                    )
+        let mut trades: Vec<Trade> = (&self.orders)
+            .iter()
+            .filter_map(|order| match order {
+                Order::Open(entry) => {
+                    if let Some(exit) = self.matching_exit(&entry) {
+                        Some(Trade::closed(&entry, exit))
+                    } else {
+                        Some(Trade::open(&entry, latest_price))
+                    }
+                }
+                _ => None,
             })
             .collect();
 
@@ -87,62 +86,118 @@ where
         trades
     }
 
-    pub fn balance_history(&self) -> CurrencyAmount {
-        todo!()
-    }
-
     // Add new price information
     // This potentially results in new orders to be executed
-    pub fn update_price(&mut self, frame: Frame) -> Option<Vec<Order>> {
+    pub fn update_price(&mut self, frame: Frame) -> Vec<Order> {
         self.price_history.history.push_front(frame);
 
-        // Trigger stops
-        let orders: Vec<Order> = self
-            .trade_log(frame.close)
-            .into_iter()
-            .filter_map(|t| match t.direction {
+        let signal = self.trading_strategy.signal(&self.price_history);
+        let mut orders = vec![];
+
+        for t in self.trade_log(frame.close) {
+            // Trigger stops
+            match t.direction {
                 Direction::Buy if t.status == TradeStatus::Open && frame.low.bid < t.stop => {
-                    Some(Order::Stop(Exit {
+                    orders.push(Order::Stop(Exit {
                         position_id: t.id,
                         price: frame.low.bid,
                         time: frame.open_time + self.price_history.resolution,
-                    }))
+                    }));
                 }
                 Direction::Sell if t.status == TradeStatus::Open && frame.high.ask > t.stop => {
-                    Some(Order::Stop(Exit {
+                    orders.push(Order::Stop(Exit {
                         position_id: t.id,
                         price: frame.high.ask,
                         time: frame.open_time + self.price_history.resolution,
-                    }))
+                    }));
                 }
-                _ => None,
-            })
-            .collect();
-
-        if orders.len() > 0 {
-            return Some(orders);
+                _ => continue,
+            }
         }
 
-        None
+        if let Some(Signal::Enter(direction)) = &signal {
+            let risk = self.opening_balance * self.risk_per_trade;
+
+            if let Ok(entry) = self
+                .risk_strategy
+                .entry(*direction, &self.price_history, risk)
+            {
+                orders.push(Order::Open(entry));
+            }
+        }
+
+        orders
     }
 
     // Log an order that has been placed
     pub fn log_order(&mut self, order: Order) -> Result<(), AccountError> {
         match &order {
-            Order::Close(exit) | Order::Stop(exit) => {
-                for o in &self.orders {
-                    match o {
-                        Order::Open(entry) if exit.position_id == entry.position_id => {
-                            return Ok(self.orders.push(order))
-                        }
-                        _ => continue,
-                    }
-                }
+            Order::Open(entry) => {
+                self.check_entry(entry)?;
 
-                return Err(AccountError::NoMatchingEntry(exit.position_id.clone()));
+                return Ok(self.orders.push(order));
             }
-            Order::Open(_) => return Ok(self.orders.push(order)),
+            Order::Close(exit) | Order::Stop(exit) => {
+                let matching_entry = self.matching_entry(exit)?;
+
+                if let Some(_) = matching_entry {
+                    return Ok(self.orders.push(order));
+                } else {
+                    return Err(AccountError::NoMatchingEntry(exit.position_id.clone()));
+                }
+            }
         };
+    }
+
+    // FIXME these are all O(n) in number of orders
+    // They can be improved by indexing orders by position_id when logging them.
+
+    fn check_entry(&self, entry: &Entry) -> Result<(), AccountError> {
+        for o in &self.orders {
+            match o {
+                Order::Open(e) if entry.position_id == e.position_id => {
+                    // There already is an entry for this position
+                    return Err(AccountError::DuplicatePosition(entry.position_id.clone()));
+                }
+                _ => continue,
+            }
+        }
+
+        Ok(())
+    }
+
+    fn matching_entry(&self, exit: &Exit) -> Result<Option<&Entry>, AccountError> {
+        let mut matching_entry = None;
+
+        for o in &self.orders {
+            match o {
+                Order::Close(e) | Order::Stop(e) if e.position_id == exit.position_id => {
+                    return Err(AccountError::PositionAlreadyClosed(e.position_id.clone()));
+                }
+                Order::Open(entry) if exit.position_id == entry.position_id => {
+                    matching_entry = Some(entry);
+                }
+                _ => continue,
+            }
+        }
+
+        Ok(matching_entry)
+    }
+
+    fn matching_exit(&self, entry: &Entry) -> Option<&Exit> {
+        let id = &entry.position_id;
+
+        for o in &self.orders {
+            match o {
+                Order::Close(e) | Order::Stop(e) if &e.position_id == id => {
+                    // Duplicate exit
+                    return Some(e);
+                }
+                _ => continue,
+            }
+        }
+
+        None
     }
 }
 
@@ -153,6 +208,7 @@ mod test {
     use crate::core::strategy::{Donchian, MACD};
     use crate::core::trade::{Direction, Entry, Exit, TradeOutcome, TradeStatus};
 
+    use super::strategy::{RiskStrategyError, Signal};
     use super::*;
 
     use chrono::{DateTime, Duration, TimeZone, Timelike, Utc};
@@ -217,13 +273,70 @@ mod test {
         };
 
         let actual = account.update_price(price);
-        let expected = Some(vec![Order::Stop(Exit {
+        let expected = vec![Order::Stop(Exit {
             position_id: "2".to_string(),
             price: dec!(49.5),
             time: date() + Duration::minutes(20),
-        })]);
+        })];
 
         Ok(assert_eq!(actual, expected))
+    }
+
+    #[test]
+    fn opens_a_position_based_on_a_signal() -> Result<(), RiskStrategyError> {
+        let long = LongEntry {};
+        let mut long_account = Account::new(
+            market(),
+            long,
+            risk_strategy(),
+            dec!(0.01),
+            CurrencyAmount::new(dec!(1000), GBP),
+            Resolution::Minute(10),
+        );
+        let short = ShortEntry {};
+        let mut short_account = Account::new(
+            market(),
+            short,
+            risk_strategy(),
+            dec!(0.01),
+            CurrencyAmount::new(dec!(1000), GBP),
+            Resolution::Minute(10),
+        );
+
+        let expected_long = vec![Order::Open(long_account.risk_strategy.entry(
+            Direction::Buy,
+            &history(),
+            CurrencyAmount::new(dec!(10), GBP),
+        )?)];
+        let actual_long = long_account.update_price(frame());
+
+        assert_eq!(actual_long, expected_long);
+
+        let expected_long = vec![Order::Open(short_account.risk_strategy.entry(
+            Direction::Sell,
+            &history(),
+            CurrencyAmount::new(dec!(10), GBP),
+        )?)];
+        let actual_long = short_account.update_price(frame());
+
+        assert_eq!(actual_long, expected_long);
+
+        Ok(())
+    }
+
+    #[test]
+    fn closes_a_position_based_on_an_exit_signal() {
+        todo!()
+    }
+
+    #[test]
+    fn closes_a_position_based_on_an_opposite_entry_signal() {
+        todo!()
+    }
+
+    #[test]
+    fn reverses_a_positon_based_on_an_entry_signal() {
+        todo!()
     }
 
     // Trade log
@@ -433,13 +546,124 @@ mod test {
         Ok(())
     }
 
-    // Fixtures
+    #[test]
+    fn rejects_an_order_with_duplicate_position_id() -> Result<(), AccountError> {
+        let mut account = account();
 
-    fn account() -> Account<MACD, Donchian> {
+        let open_1 = Entry {
+            position_id: "1".to_string(),
+            direction: Direction::Buy,
+            price: dec!(100),
+            stop: dec!(90),
+            size: CurrencyAmount::new(dec!(2), GBP),
+            time: date(),
+        };
+        account.log_order(Order::Open(open_1.clone()))?;
+
+        assert_eq!(
+            Err(AccountError::DuplicatePosition("1".to_string())),
+            account.log_order(Order::Open(open_1))
+        );
+
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_orders_for_closed_positions() -> Result<(), AccountError> {
+        let mut account = account();
+
+        let open_1 = Entry {
+            position_id: "1".to_string(),
+            direction: Direction::Buy,
+            price: dec!(100),
+            stop: dec!(90),
+            size: CurrencyAmount::new(dec!(2), GBP),
+            time: date(),
+        };
+        let close_1 = Exit {
+            position_id: "1".to_string(),
+            price: dec!(89), // slippage
+            time: date() + Duration::minutes(10),
+        };
+        account.log_order(Order::Open(open_1))?;
+        account.log_order(Order::Close(close_1.clone()))?;
+
+        let open_2 = Entry {
+            position_id: "2".to_string(),
+            direction: Direction::Buy,
+            price: dec!(100),
+            stop: dec!(90),
+            size: CurrencyAmount::new(dec!(2), GBP),
+            time: date(),
+        };
+        let close_2 = Exit {
+            position_id: "2".to_string(),
+            price: dec!(89), // slippage
+            time: date() + Duration::minutes(10),
+        };
+        account.log_order(Order::Open(open_2))?;
+        account.log_order(Order::Stop(close_2.clone()))?;
+
+        assert_eq!(
+            Err(AccountError::PositionAlreadyClosed("1".to_string())),
+            account.log_order(Order::Close(close_1.clone()))
+        );
+        assert_eq!(
+            Err(AccountError::PositionAlreadyClosed("1".to_string())),
+            account.log_order(Order::Stop(close_1))
+        );
+        assert_eq!(
+            Err(AccountError::PositionAlreadyClosed("2".to_string())),
+            account.log_order(Order::Close(close_2.clone()))
+        );
+        assert_eq!(
+            Err(AccountError::PositionAlreadyClosed("2".to_string())),
+            account.log_order(Order::Close(close_2))
+        );
+
+        Ok(())
+    }
+
+    // Fixtures
+    struct LongEntry;
+    impl TradingStrategy for LongEntry {
+        fn signal(&self, _history: &PriceHistory) -> Option<Signal> {
+            Some(Signal::Enter(Direction::Buy))
+        }
+    }
+
+    struct LongExit;
+    impl TradingStrategy for LongExit {
+        fn signal(&self, _history: &PriceHistory) -> Option<Signal> {
+            Some(Signal::Exit(Direction::Buy))
+        }
+    }
+    struct ShortEntry;
+    impl TradingStrategy for ShortEntry {
+        fn signal(&self, _history: &PriceHistory) -> Option<Signal> {
+            Some(Signal::Enter(Direction::Sell))
+        }
+    }
+    struct ShortExit;
+    impl TradingStrategy for ShortExit {
+        fn signal(&self, _history: &PriceHistory) -> Option<Signal> {
+            Some(Signal::Exit(Direction::Sell))
+        }
+    }
+
+    struct NoSignal;
+    impl TradingStrategy for NoSignal {
+        fn signal(&self, _history: &PriceHistory) -> Option<Signal> {
+            None
+        }
+    }
+
+    fn account() -> Account<NoSignal, Donchian> {
         Account::new(
             market(),
             trading_strategy(),
             risk_strategy(),
+            dec!(0.01),
             CurrencyAmount::new(dec!(1000), GBP),
             Resolution::Minute(10),
         )
@@ -454,18 +678,32 @@ mod test {
         }
     }
 
-    fn trading_strategy() -> MACD {
-        MACD {
-            short_trend_length: 5,
-            long_trend_length: 20,
-        }
+    fn trading_strategy() -> NoSignal {
+        NoSignal {}
     }
 
     fn risk_strategy() -> Donchian {
-        Donchian { channel_length: 20 }
+        Donchian { channel_length: 1 }
     }
 
     fn date() -> DateTime<Utc> {
         Utc.ymd(2021, 1, 1).and_hms(10, 1, 0)
+    }
+
+    fn frame() -> Frame {
+        Frame {
+            open: Price::new_mid(dec!(100), dec!(1)),
+            close: Price::new_mid(dec!(200), dec!(1)),
+            low: Price::new_mid(dec!(50), dec!(1)),
+            high: Price::new_mid(dec!(150), dec!(1)),
+            open_time: date() + Duration::minutes(10),
+        }
+    }
+
+    fn history() -> PriceHistory {
+        PriceHistory {
+            resolution: Resolution::Minute(10),
+            history: vec![frame()].into(),
+        }
     }
 }

@@ -27,6 +27,7 @@ fn main() {
         market,
         ts,
         rs,
+        dec!(0.01),
         CurrencyAmount::new(dec!(10000.00), Currency::GBP),
         Resolution::Minute(10),
     );
