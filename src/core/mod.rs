@@ -821,7 +821,7 @@ mod test {
             code: "UKX".to_string(),
             min_deal_size: CurrencyAmount::new(dec!(0.50), GBP),
             min_stop_distance: dec!(8),
-            margin_factor: 20,
+            margin_factor: dec!(0.5),
         }
     }
 

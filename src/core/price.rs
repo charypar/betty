@@ -56,6 +56,16 @@ impl Div<CurrencyAmount> for CurrencyAmount {
     }
 }
 
+impl PartialOrd<CurrencyAmount> for CurrencyAmount {
+    fn partial_cmp(&self, rhs: &CurrencyAmount) -> Option<std::cmp::Ordering> {
+        if self.currency == rhs.currency {
+            self.amount.partial_cmp(&rhs.amount)
+        } else {
+            None
+        }
+    }
+}
+
 // Point value with fixed decimal place position
 // Different instruments will differ in this
 pub type Points = Decimal;

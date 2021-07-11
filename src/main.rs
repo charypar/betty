@@ -10,10 +10,10 @@ use crate::core::Account;
 
 fn main() {
     let market = Market {
-        code: "UKX".to_string(),
+        code: "GDAXI".to_string(),
+        margin_factor: dec!(0.05),
         min_deal_size: CurrencyAmount::new(dec!(0.50), Currency::GBP),
-        min_stop_distance: dec!(8),
-        margin_factor: 20,
+        min_stop_distance: dec!(12),
     };
 
     let ts = MACD {
