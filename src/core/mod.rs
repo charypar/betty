@@ -91,7 +91,7 @@ where
     pub fn update_price(&mut self, frame: Frame) -> Vec<Order> {
         self.price_history.history.push_front(frame);
 
-        let time = frame.open_time + self.price_history.resolution;
+        let time = frame.close_time;
         let signal = self.trading_strategy.signal(&self.price_history);
         let open_trades = self
             .trade_log(frame.close)
@@ -235,7 +235,7 @@ mod test {
             close: Price::new_mid(dec!(200), dec!(1)),
             low: Price::new_mid(dec!(50), dec!(1)),
             high: Price::new_mid(dec!(150), dec!(1)),
-            open_time: date(),
+            close_time: date(),
         };
         account.update_price(expected);
 
@@ -259,7 +259,7 @@ mod test {
         let close_1 = Exit {
             position_id: "1".to_string(),
             price: dec!(89), // slippage
-            time: date() + Duration::minutes(10),
+            time: date(),
         };
         account.log_order(Order::Open(open_1))?;
         account.log_order(Order::Close(close_1))?;
@@ -279,14 +279,14 @@ mod test {
             close: Price::new_mid(dec!(200), dec!(1)),
             low: Price::new_mid(dec!(50), dec!(1)),
             high: Price::new_mid(dec!(150), dec!(1)),
-            open_time: date() + Duration::minutes(10),
+            close_time: date() + Duration::minutes(10),
         };
 
         let actual = account.update_price(price);
         let expected = vec![Order::Stop(Exit {
             position_id: "2".to_string(),
             price: dec!(199.5),
-            time: date() + Duration::minutes(20),
+            time: date() + Duration::minutes(10),
         })];
 
         Ok(assert_eq!(actual, expected))
@@ -377,7 +377,7 @@ mod test {
         let expected_long = vec![Order::Close(Exit {
             position_id: "1".to_string(),
             price: dec!(199.5),
-            time: date() + Duration::minutes(10),
+            time: date(),
         })];
         let actual_long = long_account.update_price(frame());
 
@@ -386,7 +386,7 @@ mod test {
         let expected_short = vec![Order::Close(Exit {
             position_id: "1".to_string(),
             price: dec!(200.5),
-            time: date() + Duration::minutes(10),
+            time: date(),
         })];
         let actual_short = short_account.update_price(frame());
 
@@ -443,7 +443,7 @@ mod test {
             Order::Close(Exit {
                 position_id: "1".to_string(),
                 price: dec!(199.5),
-                time: date() + Duration::minutes(10),
+                time: date(),
             }),
             Order::Open(
                 long_account
@@ -464,7 +464,7 @@ mod test {
             Order::Close(Exit {
                 position_id: "1".to_string(),
                 price: dec!(200.5),
-                time: date() + Duration::minutes(10),
+                time: date(),
             }),
             Order::Open(
                 short_account
@@ -843,7 +843,7 @@ mod test {
             close: Price::new_mid(dec!(200), dec!(1)),
             low: Price::new_mid(dec!(50), dec!(1)),
             high: Price::new_mid(dec!(150), dec!(1)),
-            open_time: date(),
+            close_time: date(),
         }
     }
 

@@ -56,7 +56,7 @@ pub trait RiskStrategy {
             Direction::Sell => latest_close.bid,
         };
 
-        let time = history.history[0].open_time + history.resolution;
+        let time = history.history[0].close_time;
 
         // Size of the trade (per point) is our total acceptable risk
         // divided by the distance to stop-loss level
@@ -304,23 +304,23 @@ mod test {
                 close: low,
                 high: max,
                 low: min,
-                open_time: start_time,
+                close_time: start_time,
             },
             Frame {
                 open: low,
                 close: high,
                 high: max,
                 low: min,
-                open_time: start_time,
+                close_time: start_time,
             },
         ];
-        let timeline = iter::successors(Some(start_time), |t| Some(*t + resolution));
+        let timeline = iter::successors(Some(start_time + resolution), |t| Some(*t + resolution));
 
         let mut history: Vec<Frame> = std::iter::repeat(cycle)
             .flatten()
             .zip(timeline)
             .map(|(frame, time)| Frame {
-                open_time: time,
+                close_time: time,
                 ..frame
             })
             .take(length)

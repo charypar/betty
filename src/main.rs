@@ -49,7 +49,7 @@ where
 
 fn frame_from(price_record: PriceRecord, spread: Decimal) -> Frame {
     Frame {
-        open_time: price_record.date,
+        close_time: price_record.date,
         open: Price::new_mid(price_record.open, spread),
         high: Price::new_mid(price_record.high, spread),
         low: Price::new_mid(price_record.low, spread),
@@ -67,7 +67,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     for price in prices {
         println!(
             "{:}: open:{:?} low:{:?} high:{:?} close:{:?}",
-            price.open_time, price.open, price.low, price.high, price.close
+            price.close_time, price.open, price.low, price.high, price.close
         );
     }
 

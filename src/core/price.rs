@@ -108,7 +108,7 @@ pub struct Frame {
     pub high: Price,
     pub low: Price,
     pub open: Price,
-    pub open_time: DateTime<Utc>,
+    pub close_time: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, Copy)]
