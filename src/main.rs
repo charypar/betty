@@ -1,4 +1,5 @@
 mod core;
+mod strategies;
 
 use std::error::Error;
 use std::io;
@@ -15,8 +16,8 @@ use serde::Deserializer;
 use crate::core::market::Market;
 use crate::core::price::Frame;
 use crate::core::price::{CurrencyAmount, Price, Resolution};
-use crate::core::strategy::{Donchian, MACD};
 use crate::core::Account;
+use crate::strategies::{Donchian, MACD};
 
 // CSV processing
 // FIXME move this somewhere else
@@ -58,6 +59,8 @@ fn frame_from(price_record: PriceRecord, spread: Decimal) -> Frame {
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
+    // Read the price
+
     let mut reader = csv::Reader::from_reader(io::stdin());
     let prices: Vec<_> = reader
         .deserialize()
@@ -71,6 +74,8 @@ fn main() -> Result<(), Box<dyn Error>> {
         );
     }
 
+    // Set up a test run
+
     let market = Market {
         code: "GDAXI".to_string(),
         margin_factor: dec!(0.05),
@@ -79,8 +84,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let ts = MACD {
-        short_trend_length: 5,
-        long_trend_length: 20,
+        short_trend_length: 12,
+        long_trend_length: 40,
+        macd_signal_length: 10,
+        entry_signal_diff_limit: dec!(10),
+        exit_signal_diff_limit: dec!(10),
     };
 
     let rs = Donchian { channel_length: 20 };
@@ -94,11 +102,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         Resolution::Day,
     );
 
+    // Run the test
+
     // TODO feed in a price history and log resulting orders
     let latest_price = Price {
         bid: dec!(110),
         ask: dec!(110),
     };
+
+    // Pretty print a trade log
 
     for trade in account.trade_log(latest_price) {
         println!("{:?}", trade);

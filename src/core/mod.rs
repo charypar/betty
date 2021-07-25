@@ -215,9 +215,10 @@ where
 mod test {
 
     use crate::core::price::Price;
-    use crate::core::strategy::Donchian;
     use crate::core::trade::{Direction, Entry, Exit, TradeOutcome, TradeStatus};
+    use crate::strategies::Donchian;
 
+    use super::price::Points;
     use super::strategy::{RiskStrategyError, Signal};
     use super::*;
 
@@ -805,7 +806,18 @@ mod test {
         }
     }
 
-    fn account() -> Account<NoSignal, Donchian> {
+    struct NoRisk;
+    impl RiskStrategy for NoRisk {
+        fn stop(
+            &self,
+            direction: Direction,
+            history: &PriceHistory,
+        ) -> Result<Points, RiskStrategyError> {
+            Ok(history.history[0].close.mid_price())
+        }
+    }
+
+    fn account() -> Account<NoSignal, NoRisk> {
         Account::new(
             market(),
             trading_strategy(),
@@ -829,8 +841,8 @@ mod test {
         NoSignal {}
     }
 
-    fn risk_strategy() -> Donchian {
-        Donchian { channel_length: 1 }
+    fn risk_strategy() -> NoRisk {
+        NoRisk {}
     }
 
     fn date() -> DateTime<Utc> {
