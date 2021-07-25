@@ -14,6 +14,7 @@ pub struct MACD {
     pub exit_signal_diff_limit: Decimal,
 }
 
+#[derive(Clone)]
 pub struct EMA<I, T> {
     iter: I,
     prev: Option<T>,
@@ -74,7 +75,38 @@ struct MACDValue {
 
 impl MACD {
     fn macd(values: &[Decimal], short: usize, long: usize, signal: usize) -> Vec<MACDValue> {
-        todo!()
+        let mut short = values.into_iter().ema(short);
+        let mut long = values.into_iter().ema(long);
+
+        let mut macd = short.clone().zip(long.clone()).map(|(s, l)| s - l).clone();
+        let mut macd_sig = macd.clone().ema(signal);
+
+        let mut macd_sig_diff = macd.clone().zip(macd_sig.clone()).map(|(m, s)| m - s);
+
+        // All the clones above are only copying the iterator structs so that we can
+        // iterate each of the five streams independently below
+
+        let mut output = Vec::with_capacity(values.len());
+        loop {
+            match (
+                short.next(),
+                long.next(),
+                macd.next(),
+                macd_sig.next(),
+                macd_sig_diff.next(),
+            ) {
+                (Some(s), Some(l), Some(m), Some(ms), Some(msd)) => output.push(MACDValue {
+                    short_ema: s,
+                    long_ema: l,
+                    macd: m,
+                    macd_signal: ms,
+                    macd_signal_diff: msd,
+                }),
+                _ => break,
+            }
+        }
+
+        output
     }
 
     pub fn samples_needed(length: usize, error: Decimal) -> usize {
@@ -112,7 +144,7 @@ mod tests {
 
     #[test]
     fn single_value_ema() {
-        let actual: Vec<_> = vec![dec!(5.0)].iter().ema(40).collect();
+        let actual: Vec<_> = vec![dec!(5.0)].into_iter().ema(40).collect();
         let expected = vec![dec!(5.0)];
 
         assert_eq!(actual, expected);
