@@ -4,7 +4,6 @@ use crate::core::price::{Points, PriceHistory};
 use crate::core::strategy::{RiskStrategy, RiskStrategyError};
 use crate::core::trade::Direction;
 
-// RiskStrategy decides stop-loss placement and trade size
 pub struct Donchian {
     pub channel_length: usize,
 }

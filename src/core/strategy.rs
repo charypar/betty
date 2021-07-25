@@ -4,6 +4,8 @@ use std::fmt::Display;
 use super::price::{CurrencyAmount, Points, PriceHistory};
 use super::trade::{Direction, Entry};
 
+// Tading Strategy gives signals for entering and exiting trades based on market trend
+
 pub trait TradingStrategy {
     fn signal(&self, history: &PriceHistory) -> Option<Signal>;
 }
@@ -12,6 +14,8 @@ pub enum Signal {
     Enter(Direction), // Also considered an exit signal for the opposite direction
     Exit(Direction),  // Exit only
 }
+
+// RiskStrategy decides stop-loss placement and trade size
 
 pub trait RiskStrategy {
     fn stop(
