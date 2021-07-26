@@ -14,6 +14,9 @@ use serde::Deserializer;
 use crate::core::market::Market;
 use crate::core::price::Frame;
 use crate::core::price::{CurrencyAmount, Price, Resolution};
+use crate::core::trade::Entry;
+use crate::core::trade::Exit;
+use crate::core::trade::Order;
 use crate::core::Account;
 use crate::strategies::{Donchian, MACD};
 
@@ -65,13 +68,6 @@ fn main() -> Result<(), Box<dyn Error>> {
         .flat_map(|line| -> Result<Frame, csv::Error> { Ok(frame_from(line?, dec!(5))) })
         .collect();
 
-    for price in prices {
-        println!(
-            "{:}: open:{:?} low:{:?} high:{:?} close:{:?}",
-            price.close_time, price.open, price.low, price.high, price.close
-        );
-    }
-
     // Set up a test run
 
     let market = Market {
@@ -82,36 +78,90 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let ts = MACD {
-        short: 12,
-        long: 40,
-        signal: 10,
+        short: 16,
+        long: 42,
+        signal: 20,
         entry_lim: dec!(10),
         exit_lim: dec!(10),
     };
 
     let rs = Donchian { channel_length: 20 };
 
-    let account = Account::new(
+    let mut account = Account::new(
         market,
         ts,
         rs,
         dec!(0.01),
-        CurrencyAmount::new(dec!(10000.00), Currency::GBP),
+        CurrencyAmount::new(dec!(20000.00), Currency::GBP),
         Resolution::Day,
     );
 
     // Run the test
+    let mut p_id = 0;
+
+    for price in &prices {
+        for order in account.update_price(*price) {
+            match order {
+                Order::Open(entry) => {
+                    // TODO validate entry
+
+                    let o = Order::Open(Entry {
+                        position_id: p_id.to_string(),
+                        ..entry
+                    });
+
+                    let r = account.log_order(o);
+                    if let Err(_) = r {
+                        println!("!! Position already open");
+                    }
+                }
+                Order::Close(exit) => {
+                    let o = Order::Close(Exit {
+                        position_id: p_id.to_string(),
+                        ..exit
+                    });
+
+                    let r = account.log_order(o);
+                    if let Err(_) = r {
+                        println!("Position already closed");
+                    }
+
+                    p_id += 1;
+                }
+                Order::Stop(exit) => {
+                    let o = Order::Stop(Exit {
+                        position_id: p_id.to_string(),
+                        ..exit
+                    });
+
+                    let r = account.log_order(o);
+                    if let Err(_) = r {
+                        println!("Position already closed");
+                    }
+
+                    p_id += 1;
+                }
+            }
+        }
+    }
 
     // TODO feed in a price history and log resulting orders
-    let latest_price = Price {
-        bid: dec!(110),
-        ask: dec!(110),
-    };
+    let latest_price = prices.last().unwrap().close;
 
     // Pretty print a trade log
 
     for trade in account.trade_log(latest_price) {
-        println!("{:?}", trade);
+        println!(
+            "#{} {:?} entry: {}, exit: {:?}, size: {}, risk: {}, balance: {} - {:?}",
+            trade.id,
+            trade.direction,
+            trade.entry_price,
+            trade.exit_price,
+            trade.size,
+            trade.risk,
+            trade.balance,
+            trade.outcome
+        );
     }
 
     Ok(())

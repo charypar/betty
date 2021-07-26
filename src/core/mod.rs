@@ -5,6 +5,8 @@ pub mod strategy;
 pub mod trade;
 
 use std::collections::VecDeque;
+use std::error::Error;
+use std::fmt::Display;
 
 use rust_decimal::Decimal;
 
@@ -34,6 +36,18 @@ pub enum AccountError {
     NoMatchingEntry(String),
     DuplicatePosition(String),
     PositionAlreadyClosed(String),
+}
+
+impl Error for AccountError {}
+
+impl Display for AccountError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AccountError::NoMatchingEntry(s) => writeln!(f, "No matching entry {}", s),
+            AccountError::DuplicatePosition(s) => writeln!(f, "Duplicate position {}", s),
+            AccountError::PositionAlreadyClosed(s) => writeln!(f, "Position {} alerady closed", s),
+        }
+    }
 }
 
 impl<TS, RS> Account<TS, RS>

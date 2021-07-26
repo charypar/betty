@@ -126,7 +126,6 @@ impl MACD {
 
     pub fn samples_needed(length: usize, error: Decimal) -> usize {
         let alpha = dec!(2.0) / Decimal::from(length + 1);
-        println!("{} {} {}", error.ln(), alpha, error.ln() / -alpha);
         (error.ln() / -alpha).round().to_isize().unwrap() as usize
     }
 }

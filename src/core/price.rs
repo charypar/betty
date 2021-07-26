@@ -1,5 +1,6 @@
 use std::{
     collections::VecDeque,
+    fmt::Display,
     ops::{Add, Div, Mul, Sub},
 };
 
@@ -12,8 +13,8 @@ const CURRENCY_DECIMAL_PLACES: u32 = 6;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct CurrencyAmount {
-    amount: Decimal,
-    currency: Currency,
+    pub amount: Decimal,
+    pub currency: Currency,
 }
 
 impl CurrencyAmount {
@@ -63,6 +64,12 @@ impl PartialOrd<CurrencyAmount> for CurrencyAmount {
         } else {
             None
         }
+    }
+}
+
+impl Display for CurrencyAmount {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        Ok(print!("{} {}", self.amount, self.currency.code()))
     }
 }
 

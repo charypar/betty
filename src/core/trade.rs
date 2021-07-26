@@ -1,5 +1,6 @@
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
+use rust_decimal_macros::dec;
 
 use super::price::{CurrencyAmount, Points, Price};
 
@@ -78,6 +79,11 @@ impl Trade {
             Direction::Buy => entry.size * (latest_price.bid - entry.price),
             Direction::Sell => entry.size * (entry.price - latest_price.ask),
         };
+        let outcome = if balance.amount > dec!(0) {
+            TradeOutcome::Profit
+        } else {
+            TradeOutcome::Loss
+        };
         let risk = entry.size * (entry.price - entry.stop).abs();
 
         Trade {
@@ -91,7 +97,7 @@ impl Trade {
             stop: entry.stop,
             size: entry.size,
             risk,
-            outcome: TradeOutcome::Profit,
+            outcome,
             price_diff,
             balance,
             risk_reward: (balance / risk).unwrap(), // both numbers are derived from o.size
@@ -103,6 +109,11 @@ impl Trade {
         let balance = match entry.direction {
             Direction::Buy => entry.size * (exit.price - entry.price),
             Direction::Sell => entry.size * (entry.price - exit.price),
+        };
+        let outcome = if balance.amount > dec!(0) {
+            TradeOutcome::Profit
+        } else {
+            TradeOutcome::Loss
         };
         let risk = entry.size * (entry.price - entry.stop).abs();
 
@@ -117,7 +128,7 @@ impl Trade {
             stop: entry.stop,
             size: entry.size,
             risk,
-            outcome: TradeOutcome::Profit,
+            outcome,
             price_diff,
             balance,
             risk_reward: (balance / risk).unwrap(), // both numbers are derived from o.size
