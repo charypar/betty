@@ -4,9 +4,7 @@ mod strategies;
 use std::error::Error;
 use std::io;
 
-use chrono::Date;
-use chrono::TimeZone;
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, TimeZone, Utc};
 use iso_currency::Currency;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -84,11 +82,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     };
 
     let ts = MACD {
-        short_trend_length: 12,
-        long_trend_length: 40,
-        macd_signal_length: 10,
-        entry_signal_diff_limit: dec!(10),
-        exit_signal_diff_limit: dec!(10),
+        short: 12,
+        long: 40,
+        signal: 10,
+        entry_lim: dec!(10),
+        exit_lim: dec!(10),
     };
 
     let rs = Donchian { channel_length: 20 };
@@ -117,9 +115,4 @@ fn main() -> Result<(), Box<dyn Error>> {
     }
 
     Ok(())
-}
-
-#[cfg(test)]
-mod test {
-    use super::*;
 }

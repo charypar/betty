@@ -10,6 +10,7 @@ pub trait TradingStrategy {
     fn signal(&self, history: &PriceHistory) -> Option<Signal>;
 }
 
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub enum Signal {
     Enter(Direction), // Also considered an exit signal for the opposite direction
     Exit(Direction),  // Exit only

@@ -1,4 +1,5 @@
 pub mod market;
+pub mod maths;
 pub mod price;
 pub mod strategy;
 pub mod trade;
@@ -213,10 +214,8 @@ where
 
 #[cfg(test)]
 mod test {
-
     use crate::core::price::Price;
     use crate::core::trade::{Direction, Entry, Exit, TradeOutcome, TradeStatus};
-    use crate::strategies::Donchian;
 
     use super::price::Points;
     use super::strategy::{RiskStrategyError, Signal};

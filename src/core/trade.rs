@@ -1,4 +1,4 @@
-use chrono::{Date, DateTime, Utc};
+use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 
 use super::price::{CurrencyAmount, Points, Price};
