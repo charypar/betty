@@ -12,6 +12,15 @@ pub enum Direction {
     Sell,
 }
 
+impl Display for Direction {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Direction::Buy => write!(f, "Buy"),
+            Direction::Sell => write!(f, "Sell"),
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct Entry {
     pub position_id: String,
@@ -40,6 +49,15 @@ pub enum Order {
 pub enum TradeStatus {
     Open,
     Closed,
+}
+
+impl Display for TradeStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TradeStatus::Open => write!(f, "Open"),
+            TradeStatus::Closed => write!(f, "Closed"),
+        }
+    }
 }
 
 #[derive(Debug, PartialEq, Clone, Copy)]
