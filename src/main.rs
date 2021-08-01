@@ -10,17 +10,12 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::{Deserialize, Deserializer};
 use term_table::{row::Row, table_cell::TableCell, Table, TableStyle};
-use termion::color;
+use termion::{color, style};
 
 use crate::core::market::Market;
 use crate::core::price::Frame;
 use crate::core::price::{CurrencyAmount, Price, Resolution};
-use crate::core::trade::Direction;
-use crate::core::trade::Entry;
-use crate::core::trade::Exit;
-use crate::core::trade::Order;
-use crate::core::trade::TradeOutcome;
-use crate::core::trade::TradeStatus;
+use crate::core::trade::{Direction, Entry, Exit, Order, Trade, TradeOutcome, TradeStatus};
 use crate::core::Account;
 use crate::strategies::{Donchian, MACD};
 
@@ -164,7 +159,7 @@ fn main() -> Result<(), Box<dyn Error>> {
             "Risk", "Outcome", "Profit", "RR", "Balance",
         ]
         .into_iter()
-        .map(|it| TableCell::new(it)),
+        .map(|it| TableCell::new(format!("{}{}{}", style::Bold, it, style::Reset))),
     ));
 
     let trade_log = account.trade_log(latest_price);
@@ -175,7 +170,7 @@ fn main() -> Result<(), Box<dyn Error>> {
 
         table.add_row(Row::new(
             vec![
-                trade.id,
+                trade.id.clone(),
                 match trade.status {
                     TradeStatus::Open => "Open".to_string(),
                     TradeStatus::Closed => "Closed".to_string(),
@@ -194,38 +189,33 @@ fn main() -> Result<(), Box<dyn Error>> {
                     .exit_price
                     .map(|p| p.to_string())
                     .unwrap_or("-".to_string()),
-                trade.stop.to_string(),
+                format!(
+                    "{}{}{}",
+                    stop_colour(&trade, latest_price),
+                    trade.stop,
+                    color::Fg(color::Reset)
+                ),
                 trade.price_diff.to_string(),
                 trade.size.to_string(),
                 trade.risk.to_string(),
-                match trade.outcome {
-                    TradeOutcome::Profit => format!(
-                        "{}Profit{}",
-                        color::Fg(color::Green),
-                        color::Fg(color::Reset)
-                    ),
-                    TradeOutcome::Loss => {
-                        format!("{}Loss{}", color::Fg(color::Red), color::Fg(color::Reset))
-                    }
-                },
-                match trade.outcome {
-                    TradeOutcome::Profit => format!(
-                        "{}{}{}",
-                        color::Fg(color::Green),
-                        trade.profit,
-                        color::Fg(color::Reset)
-                    ),
-                    TradeOutcome::Loss => format!(
-                        "{}{}{}",
-                        color::Fg(color::Red),
-                        trade.profit,
-                        color::Fg(color::Reset)
-                    ),
-                },
-                match trade.outcome {
-                    TradeOutcome::Profit => trade.risk_reward.round_dp(2).to_string(),
-                    TradeOutcome::Loss => trade.risk_reward.round_dp(2).to_string(),
-                },
+                format!(
+                    "{}{}{}",
+                    outcome_color(trade.outcome),
+                    trade.outcome,
+                    color::Fg(color::Reset)
+                ),
+                format!(
+                    "{}{}{}",
+                    outcome_color(trade.outcome),
+                    trade.profit,
+                    color::Fg(color::Reset)
+                ),
+                format!(
+                    "{}{}{}",
+                    risk_colour(trade.risk_reward),
+                    trade.risk_reward.round_dp(2),
+                    color::Fg(color::Reset)
+                ),
                 balance.to_string(),
             ]
             .into_iter()
@@ -235,4 +225,35 @@ fn main() -> Result<(), Box<dyn Error>> {
 
     println!("{}", table.render());
     Ok(())
+}
+
+fn outcome_color(outcome: TradeOutcome) -> String {
+    match outcome {
+        TradeOutcome::Profit => format!("{}", color::Fg(color::Green)),
+        TradeOutcome::Loss => format!("{}", color::Fg(color::Red)),
+    }
+}
+
+fn stop_colour(trade: &Trade, latest_price: Price) -> String {
+    match trade.direction {
+        Direction::Buy if trade.stop >= trade.exit_price.unwrap_or(latest_price.bid) => {
+            format!("{}", color::Fg(color::Red))
+        }
+        Direction::Sell if trade.stop <= trade.exit_price.unwrap_or(latest_price.ask) => {
+            format!("{}", color::Fg(color::Red))
+        }
+        _ => String::new(),
+    }
+}
+
+fn risk_colour(risk: Decimal) -> String {
+    if risk < dec!(-0.5) {
+        return format!("{}", color::Fg(color::Red));
+    }
+
+    if risk > dec!(1.0) {
+        return format!("{}", color::Fg(color::Green));
+    }
+
+    String::new()
 }

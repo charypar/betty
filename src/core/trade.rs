@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use chrono::{DateTime, Utc};
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
@@ -34,16 +36,25 @@ pub enum Order {
     Stop(Exit),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum TradeStatus {
     Open,
     Closed,
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub enum TradeOutcome {
     Profit,
     Loss,
+}
+
+impl Display for TradeOutcome {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            TradeOutcome::Profit => write!(f, "Profit"),
+            TradeOutcome::Loss => write!(f, "Loss"),
+        }
+    }
 }
 
 // A row in a trade log
