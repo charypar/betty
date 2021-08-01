@@ -34,20 +34,20 @@ pub enum Order {
     Stop(Exit),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum TradeStatus {
     Open,
     Closed,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum TradeOutcome {
     Profit,
     Loss,
 }
 
 // A row in a trade log
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub struct Trade {
     pub id: String,
     pub status: TradeStatus,
@@ -65,7 +65,7 @@ pub struct Trade {
     // Outcome
     pub outcome: TradeOutcome,
     pub price_diff: Points,
-    pub balance: CurrencyAmount,
+    pub profit: CurrencyAmount,
     pub risk_reward: Decimal,
 }
 
@@ -75,11 +75,11 @@ impl Trade {
             Direction::Buy => latest_price.bid - entry.price,
             Direction::Sell => latest_price.ask - entry.price,
         };
-        let balance = match entry.direction {
+        let profit = match entry.direction {
             Direction::Buy => entry.size * (latest_price.bid - entry.price),
             Direction::Sell => entry.size * (entry.price - latest_price.ask),
         };
-        let outcome = if balance.amount > dec!(0) {
+        let outcome = if profit.amount > dec!(0) {
             TradeOutcome::Profit
         } else {
             TradeOutcome::Loss
@@ -99,18 +99,18 @@ impl Trade {
             risk,
             outcome,
             price_diff,
-            balance,
-            risk_reward: (balance / risk).unwrap(), // both numbers are derived from o.size
+            profit,
+            risk_reward: (profit / risk).unwrap(), // both numbers are derived from o.size
         }
     }
 
     pub fn closed(entry: &Entry, exit: &Exit) -> Self {
         let price_diff = exit.price - entry.price;
-        let balance = match entry.direction {
+        let profit = match entry.direction {
             Direction::Buy => entry.size * (exit.price - entry.price),
             Direction::Sell => entry.size * (entry.price - exit.price),
         };
-        let outcome = if balance.amount > dec!(0) {
+        let outcome = if profit.amount > dec!(0) {
             TradeOutcome::Profit
         } else {
             TradeOutcome::Loss
@@ -130,8 +130,8 @@ impl Trade {
             risk,
             outcome,
             price_diff,
-            balance,
-            risk_reward: (balance / risk).unwrap(), // both numbers are derived from o.size
+            profit,
+            risk_reward: (profit / risk).unwrap(), // both numbers are derived from o.size
         }
     }
 

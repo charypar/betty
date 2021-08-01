@@ -1,7 +1,7 @@
 use std::{
     collections::VecDeque,
     fmt::Display,
-    ops::{Add, Div, Mul, Sub},
+    ops::{Add, AddAssign, Div, Mul, Sub},
 };
 
 use chrono::{DateTime, Datelike, Duration, TimeZone, Timelike, Utc};
@@ -20,6 +20,26 @@ pub struct CurrencyAmount {
 impl CurrencyAmount {
     pub fn new(amount: Decimal, currency: Currency) -> Self {
         Self { amount, currency }
+    }
+}
+
+impl Add for CurrencyAmount {
+    type Output = Option<CurrencyAmount>;
+
+    fn add(self, rhs: Self) -> Self::Output {
+        if self.currency == rhs.currency {
+            Some(CurrencyAmount::new(self.amount + rhs.amount, self.currency))
+        } else {
+            None
+        }
+    }
+}
+
+impl AddAssign for CurrencyAmount {
+    fn add_assign(&mut self, rhs: Self) {
+        if self.currency == rhs.currency {
+            self.amount += rhs.amount;
+        }
     }
 }
 
@@ -69,7 +89,7 @@ impl PartialOrd<CurrencyAmount> for CurrencyAmount {
 
 impl Display for CurrencyAmount {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        Ok(print!("{} {}", self.amount, self.currency.code()))
+        write!(f, "{} {}", self.amount.round_dp(2), self.currency.code())
     }
 }
 

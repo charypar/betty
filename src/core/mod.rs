@@ -22,13 +22,14 @@ where
     TS: TradingStrategy,
     RS: RiskStrategy,
 {
-    pub opening_balance: CurrencyAmount,
+    pub balance: CurrencyAmount,
     pub market: Market,
     pub price_history: PriceHistory,
     pub trading_strategy: TS,
     pub risk_strategy: RS,
     pub risk_per_trade: Decimal,
-    orders: Vec<Order>,
+    closed_trades: Vec<Trade>,
+    live_trades: Vec<Entry>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -64,36 +65,31 @@ where
         resolution: Resolution,
     ) -> Self {
         Account {
-            opening_balance,
+            balance: opening_balance,
             market,
             trading_strategy,
             risk_strategy,
             risk_per_trade,
-            orders: vec![],
             price_history: PriceHistory {
                 resolution,
                 history: VecDeque::new(),
             },
+            closed_trades: vec![],
+            live_trades: vec![],
         }
     }
 
     pub fn trade_log(&self, latest_price: Price) -> Vec<Trade> {
-        if self.orders.len() < 1 {
-            return vec![];
-        }
-
-        let mut trades: Vec<Trade> = (&self.orders)
+        let live_trades = self
+            .live_trades
             .iter()
-            .filter_map(|order| match order {
-                Order::Open(entry) => {
-                    if let Some(exit) = self.matching_exit(&entry) {
-                        Some(Trade::closed(&entry, exit))
-                    } else {
-                        Some(Trade::open(&entry, latest_price))
-                    }
-                }
-                _ => None,
-            })
+            .map(|entry| Trade::open(entry, latest_price));
+
+        let mut trades: Vec<Trade> = self
+            .closed_trades
+            .iter()
+            .cloned()
+            .chain(live_trades)
             .collect();
 
         trades.sort_by(|a, b| a.entry_time.cmp(&b.entry_time));
@@ -141,7 +137,7 @@ where
 
         // Enter a new trade on signal
         if let Some(Signal::Enter(direction)) = &signal {
-            let risk = self.opening_balance * self.risk_per_trade;
+            let risk = self.balance * self.risk_per_trade;
 
             if let Ok(entry) = self
                 .risk_strategy
@@ -156,17 +152,20 @@ where
 
     // Log an order that has been placed
     pub fn log_order(&mut self, order: Order) -> Result<(), AccountError> {
-        match &order {
+        match order {
             Order::Open(entry) => {
-                self.check_entry(entry)?;
+                self.check_entry(&entry)?;
 
-                return Ok(self.orders.push(order));
+                return Ok(self.live_trades.push(entry));
             }
             Order::Close(exit) | Order::Stop(exit) => {
-                let matching_entry = self.matching_entry(exit)?;
+                let matching_entry = self.remove_matching_entry(&exit)?;
 
-                if let Some(_) = matching_entry {
-                    return Ok(self.orders.push(order));
+                if let Some(entry) = matching_entry {
+                    let trade = Trade::closed(&entry, &exit);
+                    self.balance += trade.profit;
+
+                    return Ok(self.closed_trades.push(trade));
                 } else {
                     return Err(AccountError::NoMatchingEntry(exit.position_id.clone()));
                 }
@@ -178,51 +177,32 @@ where
     // They can be improved by indexing orders by position_id when logging them.
 
     fn check_entry(&self, entry: &Entry) -> Result<(), AccountError> {
-        for o in &self.orders {
-            match o {
-                Order::Open(e) if entry.position_id == e.position_id => {
-                    // There already is an entry for this position
-                    return Err(AccountError::DuplicatePosition(entry.position_id.clone()));
-                }
-                _ => continue,
+        for e in &self.live_trades {
+            if entry.position_id == e.position_id {
+                // There already is an entry for this position
+                return Err(AccountError::DuplicatePosition(entry.position_id.clone()));
             }
         }
 
         Ok(())
     }
 
-    fn matching_entry(&self, exit: &Exit) -> Result<Option<&Entry>, AccountError> {
-        let mut matching_entry = None;
-
-        for o in &self.orders {
-            match o {
-                Order::Close(e) | Order::Stop(e) if e.position_id == exit.position_id => {
-                    return Err(AccountError::PositionAlreadyClosed(e.position_id.clone()));
-                }
-                Order::Open(entry) if exit.position_id == entry.position_id => {
-                    matching_entry = Some(entry);
-                }
-                _ => continue,
+    fn remove_matching_entry(&mut self, exit: &Exit) -> Result<Option<Entry>, AccountError> {
+        for t in &self.closed_trades {
+            if t.id == exit.position_id {
+                return Err(AccountError::PositionAlreadyClosed(t.id.clone()));
             }
         }
 
-        Ok(matching_entry)
-    }
+        for (i, e) in self.live_trades.iter().enumerate() {
+            if exit.position_id == e.position_id {
+                let entry = self.live_trades.remove(i);
 
-    fn matching_exit(&self, entry: &Entry) -> Option<&Exit> {
-        let id = &entry.position_id;
-
-        for o in &self.orders {
-            match o {
-                Order::Close(e) | Order::Stop(e) if &e.position_id == id => {
-                    // Duplicate exit
-                    return Some(e);
-                }
-                _ => continue,
+                return Ok(Some(entry));
             }
         }
 
-        None
+        Ok(None)
     }
 }
 
@@ -545,7 +525,7 @@ mod test {
             risk: CurrencyAmount::new(dec!(10), GBP),
             outcome: TradeOutcome::Profit,
             price_diff: dec!(10),
-            balance: CurrencyAmount::new(dec!(10), GBP),
+            profit: CurrencyAmount::new(dec!(10), GBP),
             risk_reward: dec!(1.0),
         }];
         let actual = account.trade_log(latest_price);
@@ -593,7 +573,7 @@ mod test {
             risk: CurrencyAmount::new(dec!(10), GBP),
             outcome: TradeOutcome::Profit,
             price_diff: dec!(50),
-            balance: CurrencyAmount::new(dec!(50), GBP),
+            profit: CurrencyAmount::new(dec!(50), GBP),
             risk_reward: dec!(5.0),
         }];
         let actual = account.trade_log(latest_price);
@@ -823,7 +803,7 @@ mod test {
     impl RiskStrategy for NoRisk {
         fn stop(
             &self,
-            direction: Direction,
+            _direction: Direction,
             history: &PriceHistory,
         ) -> Result<Points, RiskStrategyError> {
             Ok(history.history[0].close.mid_price())

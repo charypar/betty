@@ -1,3 +1,5 @@
+use std::fmt::Display;
+
 use rust_decimal::Decimal;
 
 use super::price::{CurrencyAmount, Points};
@@ -16,6 +18,16 @@ pub enum MarketError {
     DealTooSmall,        // size below min_deal_size
     StopTooClose,        // stop-loss is not far enough
     InsufficientBalance, // would result in margin call
+}
+
+impl Display for MarketError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MarketError::DealTooSmall => write!(f, "Deal size is below minimum"),
+            MarketError::StopTooClose => write!(f, "Stop is is below minimum distance"),
+            MarketError::InsufficientBalance => write!(f, "Insufficient balance to place trade"),
+        }
+    }
 }
 
 impl Market {
