@@ -3,8 +3,8 @@ use rust_decimal_macros::dec;
 use term_table::{row::Row, table_cell::TableCell, Table, TableStyle};
 use termion::{color, style};
 
-use crate::core::price::{CurrencyAmount, Price};
-use crate::core::trade::{Direction, Trade, TradeOutcome};
+use betty::price::{CurrencyAmount, Price};
+use betty::trade::{Direction, Trade, TradeOutcome};
 
 pub fn format_trade_log(
     trade_log: &Vec<Trade>,

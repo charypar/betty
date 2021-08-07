@@ -1,19 +1,13 @@
-pub mod market;
-pub mod maths;
-pub mod price;
-pub mod strategy;
-pub mod trade;
-
 use std::collections::VecDeque;
 use std::error::Error;
 use std::fmt::Display;
 
 use rust_decimal::Decimal;
 
-use self::market::Market;
-use self::price::{CurrencyAmount, Frame, Price, PriceHistory, Resolution};
-use self::strategy::{RiskStrategy, Signal, TradingStrategy};
-use self::trade::{Direction, Entry, Exit, Order, Trade, TradeStatus};
+use crate::core::market::Market;
+use crate::core::price::{CurrencyAmount, Frame, Price, PriceHistory, Resolution};
+use crate::core::strategy::{RiskStrategy, Signal, TradingStrategy};
+use crate::core::trade::{Direction, Entry, Exit, Order, Trade, TradeStatus};
 
 // Account holds the state of the trading account and history of all the orders placed
 // in response to price updates.
@@ -208,12 +202,11 @@ where
 
 #[cfg(test)]
 mod test {
-    use crate::core::price::Price;
-    use crate::core::trade::{Direction, Entry, Exit, TradeOutcome, TradeStatus};
-
-    use super::price::Points;
-    use super::strategy::{RiskStrategyError, Signal};
     use super::*;
+
+    use crate::core::price::{Points, Price};
+    use crate::core::strategy::{RiskStrategyError, Signal};
+    use crate::core::trade::{Direction, Entry, Exit, TradeOutcome, TradeStatus};
 
     use chrono::{DateTime, Duration, TimeZone, Timelike, Utc};
     use iso_currency::Currency::GBP;

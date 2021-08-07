@@ -1,23 +1,21 @@
-mod core;
 mod print;
 mod read;
-mod strategies;
 
 use std::io;
 
 use iso_currency::Currency;
 use rust_decimal_macros::dec;
 
-use crate::core::market::Market;
-use crate::core::price::Frame;
-use crate::core::price::{CurrencyAmount, Resolution};
-use crate::core::strategy::{RiskStrategy, TradingStrategy};
-use crate::core::trade::{Entry, Exit, Order};
-use crate::core::Account;
+use betty::account::Account;
+use betty::market::Market;
+use betty::price::Frame;
+use betty::price::{CurrencyAmount, Resolution};
+use betty::strategies::{Donchian, MACD};
+use betty::strategy::{RiskStrategy, TradingStrategy};
+use betty::trade::{Entry, Exit, Order};
 
 use crate::print::format_trade_log;
 use crate::read::read_prices_csv;
-use crate::strategies::{Donchian, MACD};
 
 fn main() {
     let prices = read_prices_csv(io::stdin());

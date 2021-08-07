@@ -3,7 +3,7 @@ use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use serde::{Deserialize, Deserializer};
 
-use crate::core::price::{Frame, Price};
+use betty::price::{Frame, Price};
 
 #[derive(Deserialize, Debug)]
 struct PriceRecord {
