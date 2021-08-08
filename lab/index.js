@@ -27,24 +27,55 @@ const lab = async () => {
 
   // D3 stuff
 
-  const data = fc.randomFinancial()(50);
+  const map = (d) => {
+    return {
+      date: new Date(d.date),
+      open: +d.open,
+      close: +d.close,
+      low: +d.low,
+      high: +d.high,
+      volume: +d.volume,
+    };
+  };
 
-  const yExtent = fc.extentLinear().accessors([(d) => d.high, (d) => d.low]);
+  d3.csv("data/dax-2018-2021-daily.csv", map).then((data) => {
+    const yExtent = fc
+      .extentLinear()
+      .pad([0.1, 0.1])
+      .accessors([(d) => d.high, (d) => d.low]);
 
-  const xExtent = fc.extentDate().accessors([(d) => d.date]);
+    const xExtent = fc.extentTime().accessors([(d) => d.date]);
 
-  const gridlines = fc.annotationSvgGridline();
-  const candlestick = fc.seriesSvgCandlestick();
-  const multi = fc.seriesSvgMulti().series([gridlines, candlestick]);
+    const gridlines = fc.annotationSvgGridline();
+    const candlestick = fc
+      .autoBandwidth(fc.seriesSvgCandlestick())
+      .widthFraction(0.6);
 
-  const chart = fc
-    .chartCartesian(d3.scaleTime(), d3.scaleLinear())
-    .svgPlotArea(multi);
+    const zoom = fc.zoom().on("zoom", render); // TODO add zoom extent limiting
 
-  chart.xDomain(xExtent(data));
-  chart.yDomain(yExtent(data));
+    const multi = fc.seriesSvgMulti().series([gridlines, candlestick]);
 
-  d3.select("#chart").datum(data).call(chart);
+    const x = fc
+      .scaleDiscontinuous(d3.scaleTime()) // FIXME work out how to do this for other chart types
+      .discontinuityProvider(fc.discontinuitySkipWeekends())
+      .domain(xExtent(data));
+    const y = d3.scaleLinear().domain(yExtent(data));
+
+    const chart = fc
+      .chartCartesian(x, y)
+      .svgPlotArea(multi) // weird?
+      .decorate((sel) => {
+        sel.enter().selectAll(".plot-area").call(zoom, x, null);
+      });
+
+    // Drawing function, to update the chart
+    function render() {
+      d3.select("#chart").datum(data).call(chart);
+    }
+
+    // first render
+    render();
+  });
 };
 
 lab();
