@@ -38,6 +38,11 @@ const lab = async () => {
     };
   };
 
+  const background = "#023f68";
+  const foreground = "#abd4f1";
+  const green = "#48c17b";
+  const red = "#e4597c";
+
   d3.csv("data/dax-2018-2021-daily.csv", map).then((data) => {
     const yExtent = fc
       .extentLinear()
@@ -47,9 +52,16 @@ const lab = async () => {
     const xExtent = fc.extentTime().accessors([(d) => d.date]);
 
     const gridlines = fc.annotationSvgGridline();
+
     const candlestick = fc
       .autoBandwidth(fc.seriesSvgCandlestick())
-      .widthFraction(0.6);
+      .widthFraction(0.6)
+      .decorate((sel, datum) => {
+        sel
+          .enter()
+          .style("fill", (d) => (d.close < d.open ? red : green))
+          .style("stroke", (d) => (d.close < d.open ? red : green));
+      });
 
     const zoom = fc.zoom().on("zoom", render); // TODO add zoom extent limiting
 
@@ -59,13 +71,22 @@ const lab = async () => {
       .scaleDiscontinuous(d3.scaleTime()) // FIXME work out how to do this for other chart types
       .discontinuityProvider(fc.discontinuitySkipWeekends())
       .domain(xExtent(data));
+
     const y = d3.scaleLinear().domain(yExtent(data));
 
     const chart = fc
       .chartCartesian(x, y)
-      .svgPlotArea(multi) // weird?
+      .svgPlotArea(multi)
       .decorate((sel) => {
         sel.enter().selectAll(".plot-area").call(zoom, x, null);
+      })
+      .xDecorate((sel) => {
+        sel.enter().selectAll("text").attr("fill", foreground);
+        sel.enter().selectAll("path").attr("stroke", foreground);
+      })
+      .yDecorate((sel) => {
+        sel.enter().selectAll("text").attr("fill", foreground);
+        sel.enter().selectAll("path").attr("stroke", foreground);
       });
 
     // Drawing function, to update the chart

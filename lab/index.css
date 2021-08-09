@@ -1,5 +1,6 @@
 body {
-  color: #1b1e23;
+  color: #abd4f1;
+  background-color: #012640;
   font-size: small;
   font-family: sans-serif;
   height: calc(100vh - 2em);
@@ -15,6 +16,6 @@ body > * {
 .gridline-y,
 .gridline-x,
 .annotation-line > line {
-  stroke: currentColor;
+  stroke: #abd4f1;
   stroke-opacity: 0.1;
 }
