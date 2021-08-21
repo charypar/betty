@@ -3,9 +3,10 @@ use rust_decimal::{Decimal, MathematicalOps};
 use rust_decimal_macros::dec;
 
 use crate::core::maths::EMAIterator;
-use crate::core::price::{Points, PriceHistory};
+use crate::core::price::PriceHistory;
 use crate::core::strategy::{Signal, TradingStrategy};
 use crate::core::trade::Direction;
+use crate::price::Frame;
 
 // Moving Average Convergence/Divergence
 
@@ -19,7 +20,7 @@ pub struct MACD {
     pub exit_lim: Decimal,  // exit below this value
 }
 
-struct MACDValue {
+pub struct MACDValue {
     pub short_ema: Decimal,
     pub long_ema: Decimal,
     pub macd: Decimal,
@@ -29,16 +30,18 @@ struct MACDValue {
 }
 
 impl MACD {
-    fn macd(
-        values: &[Decimal],
+    pub fn macd(
+        history: &[Frame],
         short: usize,
         long: usize,
         signal: usize,
         entry_lim: Decimal,
         exit_lim: Decimal,
     ) -> Vec<MACDValue> {
-        let mut short = values.into_iter().ema(short);
-        let mut long = values.into_iter().ema(long);
+        let points = history.into_iter().map(|it| it.close.mid_price());
+
+        let mut short = points.clone().into_iter().ema(short);
+        let mut long = points.clone().into_iter().ema(long);
 
         let mut macd = short.clone().zip(long.clone()).map(|(s, l)| s - l).clone();
         let mut macd_sig = macd.clone().ema(signal);
@@ -49,7 +52,7 @@ impl MACD {
         // iterate each of the five streams independently below
 
         let mut prev: Option<&MACDValue> = None;
-        let mut output = Vec::with_capacity(values.len());
+        let mut output = Vec::with_capacity(history.len());
 
         loop {
             match (
@@ -144,12 +147,12 @@ impl TradingStrategy for MACD {
             return None;
         }
 
-        let price: Vec<Points> = history
+        let price: Vec<Frame> = history
             .history
             .iter()
             .take(take) // only need this much history for signal
             .rev()
-            .map(|it| it.close.mid_price())
+            .cloned()
             .collect();
 
         let macd = Self::macd(

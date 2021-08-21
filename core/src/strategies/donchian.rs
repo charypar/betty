@@ -1,11 +1,46 @@
 use std::cmp::{max, min};
 
+use rust_decimal::Decimal;
+
 use crate::core::price::{Points, PriceHistory};
 use crate::core::strategy::{RiskStrategy, RiskStrategyError};
 use crate::core::trade::Direction;
+use crate::price::Frame;
 
 pub struct Donchian {
     pub channel_length: usize,
+}
+
+impl Donchian {
+    pub fn channel(history: &[Frame], length: usize) -> Vec<(Decimal, Decimal)> {
+        // minimum and maximum are order independent, so we use this as a primitive ring-buffer
+        let mut buffer = vec![(Decimal::MAX, Decimal::MIN); length];
+
+        history
+            .iter()
+            .enumerate()
+            .map(|(idx, frame)| {
+                let buf_idx = idx % length;
+
+                // The lower end of the channel is a bid price - we are selling to exit a long position that didn't go our way
+                // The higher end of the channel is an ask price - we are buying to exit a short position that didn't go our way
+                buffer[buf_idx] = (frame.low.bid, frame.high.ask);
+
+                (
+                    buffer
+                        .iter()
+                        .map(|c| c.0)
+                        .min()
+                        .expect("Couldn't calculate minimum"),
+                    buffer
+                        .iter()
+                        .map(|c| c.1)
+                        .max()
+                        .expect("Couldn't calculate maximum"),
+                )
+            })
+            .collect()
+    }
 }
 
 impl RiskStrategy for Donchian {
@@ -51,6 +86,25 @@ mod test {
     use crate::core::trade::Entry;
 
     // RiskStrategy
+
+    #[test]
+    fn calculates_basic_channel_limits() {
+        let history = oscilating_history(
+            dec!(600),
+            dec!(1000),
+            dec!(2),
+            Utc.ymd(2021, 1, 1).and_hms(12, 0, 0),
+            Resolution::Minute(10),
+            10,
+        );
+
+        let frames: Vec<Frame> = history.history.into();
+
+        let expected = vec![(dec!(599), dec!(1001)); 10];
+        let actual = Donchian::channel(&frames, 1);
+
+        assert_eq!(actual, expected);
+    }
 
     #[test]
     fn rejects_entry_without_enough_history() {
@@ -174,7 +228,7 @@ mod test {
 
         let cycle = [
             Frame {
-                open: high.clone(),
+                open: high,
                 close: low,
                 high: max,
                 low: min,

@@ -172,6 +172,7 @@ where
     }
 }
 
+// FIXME store history in an an intuitive order, the VecDequeue just causes issues
 pub struct PriceHistory {
     pub resolution: Resolution,
     pub history: VecDeque<Frame>, // in reverse order - first frame is the most recent
