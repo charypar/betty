@@ -18,13 +18,15 @@ const lab = async () => {
   const foreground = "#abd4f1";
   const green = "#48c17b";
   const red = "#e4597c";
+  const blue = "";
 
-  const data = await d3.csv("data/dax-2018-2021-daily.csv", map);
-  const { indicators, trades } = run_test(data);
+  const priceData = await d3.csv("data/dax-2018-2021-daily.csv", map);
+  const { indicators, trades } = run_test(priceData);
 
-  console.log("prices", data);
-  console.log("indicators", indicators);
-  console.log("trades", trades);
+  const data = priceData.map((d, i) => ({ ...d, ...indicators[i] }));
+  data.trades = trades;
+
+  console.log("Data for charts", data);
 
   const yExtent = fc
     .extentLinear()
@@ -45,9 +47,62 @@ const lab = async () => {
         .style("stroke", (d) => (d.close < d.open ? red : green));
     });
 
-  const minLine = fc.seriesSvgLine();
+  // Stop channel
 
-  const multi = fc.seriesSvgMulti().series([gridlines, priceCandles]);
+  const lowerStopLine = fc
+    .seriesSvgLine()
+    .mainValue((d) => d.long_stop)
+    .crossValue((d) => d.date)
+    .decorate((sel) => {
+      sel.enter().attr("stroke", foreground).style("opacity", 0.3);
+    });
+
+  const upperStopLine = fc
+    .seriesSvgLine()
+    .mainValue((d) => d.short_stop)
+    .crossValue((d) => d.date)
+    .decorate((sel) =>
+      sel.enter().attr("stroke", foreground).style("opacity", 0.3)
+    );
+
+  const stopArea = fc
+    .seriesSvgArea()
+    .mainValue((d) => d.short_stop)
+    .baseValue((d) => d.long_stop)
+    .crossValue((d) => d.date)
+    .decorate((sel) =>
+      sel.enter().attr("fill", foreground).style("opacity", 0.08)
+    );
+
+  // Moving averages
+
+  const shortEMA = fc
+    .seriesSvgLine()
+    .mainValue((d) => d.short_ema)
+    .crossValue((d) => d.date)
+    .decorate((sel) => sel.enter().attr("stroke", foreground));
+
+  const longEMA = fc
+    .seriesSvgLine()
+    .mainValue((d) => d.long_ema)
+    .crossValue((d) => d.date)
+    .decorate((sel) =>
+      sel.enter().attr("stroke", foreground).style("opacity", 0.5)
+    );
+
+  // MCDA values on a shifted scale
+
+  const multi = fc
+    .seriesSvgMulti()
+    .series([
+      gridlines,
+      lowerStopLine,
+      upperStopLine,
+      stopArea,
+      priceCandles,
+      shortEMA,
+      longEMA,
+    ]);
 
   const x = fc
     .scaleDiscontinuous(d3.scaleTime()) // FIXME work out how to do this for other chart types
