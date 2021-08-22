@@ -1,14 +1,14 @@
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 
-#[derive(Clone)]
-pub struct EMA<I, T> {
+#[derive(Clone, Debug)]
+pub struct EMA<I> {
     iter: I,
-    prev: Option<T>,
+    prev: Option<Decimal>,
     alpha: Decimal,
 }
 
-impl<I, T> EMA<I, T> {
+impl<I> EMA<I> {
     pub fn new(iter: I, length: usize) -> Self {
         Self {
             iter,
@@ -18,7 +18,7 @@ impl<I, T> EMA<I, T> {
     }
 }
 
-impl<I, T> Iterator for EMA<I, T>
+impl<I, T> Iterator for EMA<I>
 where
     I: Iterator<Item = T>,
     T: std::ops::Mul<Decimal, Output = Decimal> + Copy,
@@ -28,16 +28,18 @@ where
     fn next(&mut self) -> Option<Self::Item> {
         match (self.prev, self.iter.next()) {
             (Some(prev), Some(current)) => {
-                self.prev = Some(current);
+                let v = Some(current * self.alpha + prev * (dec!(1.0) - self.alpha));
+                self.prev = v;
 
-                Some(current * self.alpha + prev * (dec!(1.0) - self.alpha))
+                v
             }
             (None, Some(current)) => {
-                self.prev = Some(current);
-
                 // multiply to avoid T != Decimal type error.
                 // I'm sure there's a way to constrain T to not need this
-                Some(current * dec!(1.0))
+                let v = Some(current * dec!(1.0));
+                self.prev = v;
+
+                v
             }
             _ => None,
         }
@@ -45,7 +47,7 @@ where
 }
 
 pub trait EMAIterator<T>: Iterator<Item = T> + Sized {
-    fn ema(self, length: usize) -> EMA<Self, T> {
+    fn ema(self, length: usize) -> EMA<Self> {
         EMA::new(self, length)
     }
 }
