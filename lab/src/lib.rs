@@ -33,6 +33,16 @@ struct PriceRecord {
     volume: Decimal,
 }
 
+#[derive(Deserialize)]
+struct TestParameters {
+    short: usize,
+    long: usize,
+    signal: usize,
+    entry: Decimal,
+    exit: Decimal,
+    channel: usize,
+}
+
 #[derive(Serialize, Debug)]
 struct StrategyRecord {
     long_stop: Decimal,
@@ -61,13 +71,21 @@ struct TestResult {
 }
 
 #[wasm_bindgen]
-pub fn run_test(prices: JsValue) -> JsValue {
+pub fn run_test(prices: JsValue, parameters: JsValue) -> JsValue {
     let prices = prices.into_serde::<Vec<PriceRecord>>();
     if let Err(e) = prices {
         console_log(format!("Error parsing price data: {}", e));
 
         return JsValue::from_serde(&()).unwrap();
     }
+
+    let tp = parameters.into_serde::<TestParameters>();
+    if let Err(e) = tp {
+        console_log(format!("Error parsing test parameters: {}", e));
+
+        return JsValue::from_serde(&()).unwrap();
+    }
+    let opts = tp.expect("");
 
     let spread = dec!(5);
     let price_history: Vec<_> = prices
@@ -76,20 +94,27 @@ pub fn run_test(prices: JsValue) -> JsValue {
         .map(|r| frame_from(r, spread))
         .collect();
 
-    let indicators: Vec<_> = MACD::macd(&price_history, 16, 42, 10, dec!(20), dec!(10))
-        .iter()
-        .zip(Donchian::channel(&price_history, 20))
-        .map(|(ts, rs)| StrategyRecord {
-            short_ema: ts.short_ema,
-            long_ema: ts.long_ema,
-            macd: ts.macd,
-            macd_signal: ts.macd_signal,
-            macd_trend: ts.macd_trend,
-            trade_signal: ts.trade_signal.map(|s| format!("{:?}", s)),
-            long_stop: rs.1,
-            short_stop: rs.0,
-        })
-        .collect();
+    let indicators: Vec<_> = MACD::macd(
+        &price_history,
+        opts.short,
+        opts.long,
+        opts.signal,
+        opts.entry,
+        opts.exit,
+    )
+    .iter()
+    .zip(Donchian::channel(&price_history, opts.channel))
+    .map(|(ts, rs)| StrategyRecord {
+        short_ema: ts.short_ema,
+        long_ema: ts.long_ema,
+        macd: ts.macd,
+        macd_signal: ts.macd_signal,
+        macd_trend: ts.macd_trend,
+        trade_signal: ts.trade_signal.map(|s| format!("{:?}", s)),
+        long_stop: rs.1,
+        short_stop: rs.0,
+    })
+    .collect();
 
     let result = TestResult {
         indicators,

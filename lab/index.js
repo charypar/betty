@@ -21,7 +21,17 @@ const lab = async () => {
   const blue = "";
 
   const priceData = await d3.csv("data/dax-2018-2021-daily.csv", map);
-  const { indicators, trades } = run_test(priceData);
+
+  const opts = {
+    short: 5, // Short EMA
+    long: 20, // Long EMA
+    signal: 9, // MACD signal EMA
+    entry: 10, // entry threshold
+    exit: 10, // exit threshold
+    channel: 15, // stop channel length
+  };
+
+  const { indicators, trades } = run_test(priceData, opts);
 
   const data = priceData.map((d, i) => ({ ...d, ...indicators[i] }));
   data.trades = trades;
@@ -125,10 +135,26 @@ const lab = async () => {
     .baseValue(() => macdToPriceScale(0))
     .crossValue((d) => d.date)
     .decorate((sel) =>
-      sel.enter().attr("fill", foreground).style("opacity", 0.7)
+      sel
+        .enter()
+        .attr("fill", (d) => {
+          if (d.trade_signal == null) {
+            return foreground;
+          }
+          if (d.trade_signal.indexOf("Enter") != -1) {
+            return green;
+          } else {
+            return red;
+          }
+        })
+        .style("opacity", 0.7)
     );
 
   // Annotations
+
+  // TODO
+  // entry and exit limit bands
+  // MACD 0 line
 
   const gridlines = fc.annotationSvgGridline();
 
@@ -153,6 +179,9 @@ const lab = async () => {
     .domain(timeExtent(data));
 
   const yScale = d3.scaleLinear().domain(priceExtent(data));
+
+  // TODO add MACD scale on the left
+  // TODO add scope
 
   const zoom = fc.zoom().on("zoom", render); // TODO add zoom extent limiting
   const chart = fc
