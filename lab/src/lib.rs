@@ -76,7 +76,7 @@ pub fn run_test(prices: JsValue) -> JsValue {
         .map(|r| frame_from(r, spread))
         .collect();
 
-    let indicators: Vec<_> = MACD::macd(&price_history, 16, 42, 20, dec!(20), dec!(10))
+    let indicators: Vec<_> = MACD::macd(&price_history, 16, 42, 10, dec!(20), dec!(10))
         .iter()
         .zip(Donchian::channel(&price_history, 20))
         .map(|(ts, rs)| StrategyRecord {

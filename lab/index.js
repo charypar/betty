@@ -28,14 +28,13 @@ const lab = async () => {
 
   console.log("Data for charts", data);
 
-  const yExtent = fc
+  const timeExtent = fc.extentTime().accessors([(d) => d.date]);
+  const priceExtent = fc
     .extentLinear()
-    .pad([0.1, 0.1])
+    .pad([0.4, 0.1])
     .accessors([(d) => d.high, (d) => d.low]);
 
-  const xExtent = fc.extentTime().accessors([(d) => d.date]);
-
-  const gridlines = fc.annotationSvgGridline();
+  // Price chart
 
   const priceCandles = fc
     .autoBandwidth(fc.seriesSvgCandlestick())
@@ -87,10 +86,51 @@ const lab = async () => {
     .mainValue((d) => d.long_ema)
     .crossValue((d) => d.date)
     .decorate((sel) =>
-      sel.enter().attr("stroke", foreground).style("opacity", 0.5)
+      sel.enter().attr("stroke", foreground).style("opacity", 0.4)
     );
 
   // MCDA values on a shifted scale
+
+  const macdExtent = fc
+    .extentLinear()
+    .accessors([(d) => d.macd])
+    .pad([0.1, 4]);
+  const macdDomain = macdExtent(data);
+
+  // Maps MACD range to price range to display them together
+  // FIXME this is probably limiting in the long run
+  // It's likely better to make two chart areas and link their zooming and scrolling together instead
+  const macdToPriceScale = d3
+    .scaleLinear()
+    .domain(macdDomain)
+    .range(priceExtent(data));
+
+  const MACD = fc
+    .seriesSvgLine()
+    .mainValue((d) => macdToPriceScale(d.macd))
+    .crossValue((d) => d.date)
+    .decorate((sel) => sel.enter().attr("stroke", foreground));
+
+  const MACDSignal = fc
+    .seriesSvgLine()
+    .mainValue((d) => macdToPriceScale(d.macd_signal))
+    .crossValue((d) => d.date)
+    .decorate((sel) =>
+      sel.enter().attr("stroke", foreground).style("opacity", 0.4)
+    );
+
+  const MACDTrend = fc
+    .autoBandwidth(fc.seriesSvgBar())
+    .mainValue((d) => macdToPriceScale(d.macd_trend))
+    .baseValue(() => macdToPriceScale(0))
+    .crossValue((d) => d.date)
+    .decorate((sel) =>
+      sel.enter().attr("fill", foreground).style("opacity", 0.7)
+    );
+
+  // Annotations
+
+  const gridlines = fc.annotationSvgGridline();
 
   const multi = fc
     .seriesSvgMulti()
@@ -102,21 +142,24 @@ const lab = async () => {
       priceCandles,
       shortEMA,
       longEMA,
+      MACD,
+      MACDSignal,
+      MACDTrend,
     ]);
 
-  const x = fc
-    .scaleDiscontinuous(d3.scaleTime()) // FIXME work out how to do this for other chart types
+  const xScale = fc
+    .scaleDiscontinuous(d3.scaleTime())
     .discontinuityProvider(fc.discontinuitySkipWeekends())
-    .domain(xExtent(data));
+    .domain(timeExtent(data));
 
-  const y = d3.scaleLinear().domain(yExtent(data));
+  const yScale = d3.scaleLinear().domain(priceExtent(data));
 
   const zoom = fc.zoom().on("zoom", render); // TODO add zoom extent limiting
   const chart = fc
-    .chartCartesian(x, y)
+    .chartCartesian(xScale, yScale)
     .svgPlotArea(multi)
     .decorate((sel) => {
-      sel.enter().selectAll(".plot-area").call(zoom, x, null);
+      sel.enter().selectAll(".plot-area").call(zoom, xScale, null);
     })
     .xDecorate((sel) => {
       sel.enter().selectAll("text").attr("fill", foreground);
