@@ -52,6 +52,7 @@ struct StrategyRecord {
     macd: Decimal,
     macd_signal: Decimal,
     macd_trend: Decimal,
+    sentiment: String,
     trade_signal: Option<String>,
 }
 
@@ -110,6 +111,7 @@ pub fn run_test(prices: JsValue, parameters: JsValue) -> JsValue {
         macd: ts.macd,
         macd_signal: ts.macd_signal,
         macd_trend: ts.macd_trend,
+        sentiment: format!("{:?}", ts.sentiment),
         trade_signal: ts.trade_signal.map(|s| format!("{:?}", s)),
         long_stop: rs.1,
         short_stop: rs.0,

@@ -1,8 +1,12 @@
 import init, { run_test } from "./pkg/lab.js";
 
-const lab = async () => {
-  await init();
+const background = "#023f68";
+const foreground = "#abd4f1";
+const green = "#48c17b";
+const red = "#e4597c";
+const blue = "";
 
+const getData = async () => {
   const map = (d) => {
     return {
       date: new Date(d.date),
@@ -14,23 +18,22 @@ const lab = async () => {
     };
   };
 
-  const background = "#023f68";
-  const foreground = "#abd4f1";
-  const green = "#48c17b";
-  const red = "#e4597c";
-  const blue = "";
+  return await d3.csv("data/dax-2018-2021-daily.csv", map);
+};
 
-  const priceData = await d3.csv("data/dax-2018-2021-daily.csv", map);
+const lab = async () => {
+  await init();
 
   const opts = {
-    short: 5, // Short EMA
-    long: 20, // Long EMA
-    signal: 9, // MACD signal EMA
-    entry: 10, // entry threshold
-    exit: 10, // exit threshold
-    channel: 15, // stop channel length
+    short: 20, // Short EMA
+    long: 50, // Long EMA
+    signal: 10, // MACD signal EMA
+    entry: 40, // entry threshold
+    exit: 40, // exit threshold
+    channel: 20, // stop channel length
   };
 
+  const priceData = await getData();
   const { indicators, trades } = run_test(priceData, opts);
 
   const data = priceData.map((d, i) => ({ ...d, ...indicators[i] }));
@@ -138,13 +141,12 @@ const lab = async () => {
       sel
         .enter()
         .attr("fill", (d) => {
-          if (d.trade_signal == null) {
-            return foreground;
-          }
-          if (d.trade_signal.indexOf("Enter") != -1) {
+          if (d.sentiment.indexOf("Bullish") != -1) {
             return green;
-          } else {
+          } else if (d.sentiment.indexOf("Bearish") != -1) {
             return red;
+          } else {
+            return foreground;
           }
         })
         .style("opacity", 0.7)
