@@ -20,12 +20,29 @@ pub struct MACD {
     pub exit_lim: Decimal,  // exit below this value
 }
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Sentiment {
+    Neutral,
+    Bullish,
+    Bearish,
+}
+
+#[derive(Debug)]
+struct Indicators {
+    short_ema: Decimal,
+    long_ema: Decimal,
+    macd: Decimal,
+    macd_signal: Decimal,
+    macd_trend: Decimal,
+}
+
 pub struct MACDValue {
     pub short_ema: Decimal,
     pub long_ema: Decimal,
     pub macd: Decimal,
     pub macd_signal: Decimal,
     pub macd_trend: Decimal,
+    pub sentiment: Sentiment,
     pub trade_signal: Option<Signal>,
 }
 
@@ -40,91 +57,96 @@ impl MACD {
     ) -> Vec<MACDValue> {
         let points = history.into_iter().map(|it| it.close.mid_price());
 
-        let mut short = points.clone().into_iter().ema(short);
-        let mut long = points.clone().into_iter().ema(long);
+        let short_ema = points.clone().into_iter().ema(short);
+        let long_ema = points.clone().into_iter().ema(long);
 
-        let mut macd = short.clone().zip(long.clone()).map(|(s, l)| s - l).clone();
-        let mut macd_sig = macd.clone().ema(signal);
+        let macd = short_ema
+            .clone()
+            .zip(long_ema.clone())
+            .map(|(s, l)| s - l)
+            .clone();
+        let macd_sig = macd.clone().ema(signal);
 
-        let mut macd_trend = macd.clone().zip(macd_sig.clone()).map(|(m, s)| m - s);
+        let macd_trend = macd.clone().zip(macd_sig.clone()).map(|(m, s)| m - s);
 
-        // All the clones above are only copying the iterator structs so that we can
-        // iterate each of the five streams independently below
+        let all = short_ema
+            .zip(long_ema)
+            .zip(macd)
+            .zip(macd_sig)
+            .zip(macd_trend)
+            .map(|((((s, l), m), ms), mt)| Indicators {
+                short_ema: s,
+                long_ema: l,
+                macd: m,
+                macd_signal: ms,
+                macd_trend: mt,
+            });
 
-        let mut prev: Option<&MACDValue> = None;
-        let mut output = Vec::with_capacity(history.len());
+        let length = [short, long, signal].iter().max().unwrap().clone();
+        let needed = Self::samples_needed(length, EMA_ERROR) + 1;
 
-        loop {
-            match (
-                short.next(),
-                long.next(),
-                macd.next(),
-                macd_sig.next(),
-                macd_trend.next(),
-            ) {
-                (Some(s), Some(l), Some(m), Some(ms), Some(msd)) => {
-                    let signal = if let Some(pr) = prev {
-                        Self::signal(pr.macd, pr.macd_trend, ms, msd, entry_lim, exit_lim)
-                    } else {
-                        None
-                    };
+        let mut output: Vec<MACDValue> = Vec::with_capacity(history.len());
 
-                    let value = MACDValue {
-                        short_ema: s,
-                        long_ema: l,
-                        macd: m,
-                        macd_signal: ms,
-                        macd_trend: msd,
-                        trade_signal: signal,
-                    };
+        for (i, indicators) in all.enumerate() {
+            let (sentiment, signal) = if let Some(last) = output.last() {
+                let sentiment = Self::sentiment(last.sentiment, &indicators, entry_lim, exit_lim);
 
-                    output.push(value);
-                    prev = output.last();
+                if i < needed {
+                    (sentiment, None) // No signal until we have enough data for the EMAs
+                } else {
+                    (sentiment, Self::signal(last.sentiment, sentiment))
                 }
-                _ => break,
-            }
+            } else {
+                (Sentiment::Neutral, None)
+            };
+
+            let value = MACDValue {
+                short_ema: indicators.short_ema,
+                long_ema: indicators.long_ema,
+                macd: indicators.macd,
+                macd_signal: indicators.macd_signal,
+                macd_trend: indicators.macd_trend,
+                sentiment: sentiment,
+                trade_signal: signal,
+            };
+
+            output.push(value);
         }
 
         output
     }
 
-    fn signal(
-        prev_macd: Decimal,
-        prev_macd_trend: Decimal,
-        last_macd: Decimal,
-        last_macd_trend: Decimal,
+    fn sentiment(
+        sentiment: Sentiment,
+        iv: &Indicators,
         entry_lim: Decimal,
         exit_lim: Decimal,
-    ) -> Option<Signal> {
-        // estimate next MACD value from the current MACD trend
-        let est_macd_prev = (prev_macd + prev_macd_trend).abs();
-        let est_macd_last = (last_macd + last_macd_trend).abs();
+    ) -> Sentiment {
+        match sentiment {
+            // TODO these rules need more work
+            Sentiment::Bearish | Sentiment::Neutral if iv.macd > entry_lim => Sentiment::Bullish,
+            Sentiment::Bullish | Sentiment::Neutral if iv.macd < -entry_lim => Sentiment::Bearish,
+            Sentiment::Bullish if iv.macd <= exit_lim => Sentiment::Neutral,
+            Sentiment::Bearish if iv.macd >= -exit_lim => Sentiment::Neutral,
+            _ => sentiment,
+        }
+    }
 
-        // enter when estimated forward MACD crosses outside entry limit
-        let enter = est_macd_prev <= entry_lim && est_macd_last > entry_lim;
-        // exit when estimated forward MACD crosses inside exit limit
-        let exit = est_macd_prev > exit_lim && est_macd_last <= exit_lim;
-
-        let long = last_macd >= prev_macd; // moving averages diverging
-        let short = last_macd <= prev_macd; // moving averages converging
-
-        if enter && long {
-            return Some(Signal::Enter(Direction::Buy));
+    fn signal(last_sentiment: Sentiment, current_sentiment: Sentiment) -> Option<Signal> {
+        if last_sentiment == current_sentiment {
+            return None;
         }
 
-        if enter && short {
-            return Some(Signal::Enter(Direction::Sell));
+        match (last_sentiment, current_sentiment) {
+            (Sentiment::Bullish, Sentiment::Neutral) => Some(Signal::Exit(Direction::Buy)),
+            (Sentiment::Bearish, Sentiment::Neutral) => Some(Signal::Exit(Direction::Sell)),
+            (_, Sentiment::Bullish) => Some(Signal::Enter(Direction::Buy)),
+            (_, Sentiment::Bearish) => Some(Signal::Enter(Direction::Sell)),
+            _ => panic!(
+                "Unexpected sentiment change {:?} -> {:?}",
+                last_sentiment, current_sentiment
+            ),
         }
-
-        if exit && !long {
-            return Some(Signal::Exit(Direction::Buy));
-        }
-
-        if exit && !short {
-            return Some(Signal::Exit(Direction::Sell));
-        }
-
-        None
     }
 
     pub fn samples_needed(length: usize, error: Decimal) -> usize {
@@ -150,7 +172,7 @@ impl TradingStrategy for MACD {
         let price: Vec<Frame> = history
             .history
             .iter()
-            .take(take) // only need this much history for signal
+            .take(take + 1) // only need this much history for signal
             .rev()
             .cloned()
             .collect();
@@ -178,43 +200,5 @@ mod tests {
         let expected = 47;
 
         assert_eq!(actual, expected);
-    }
-
-    #[test]
-    fn produces_correct_signals() {
-        let buy = Some(Signal::Enter(Direction::Buy));
-        let sell = Some(Signal::Enter(Direction::Sell));
-        let exit_buy = Some(Signal::Exit(Direction::Buy));
-        let exit_sell = Some(Signal::Exit(Direction::Sell));
-
-        #[rustfmt::skip]
-        let cases = [
-            (dec!(0), dec!(0), dec!(0), dec!(0), dec!(30), dec!(30), None),
-            (dec!(40), dec!(0), dec!(45), dec!(0), dec!(30), dec!(30), None),
-            (dec!(-40), dec!(0), dec!(-45), dec!(0), dec!(30), dec!(30), None),
-            (dec!(10), dec!(0), dec!(15), dec!(0), dec!(30), dec!(30), None),
-            (dec!(-10), dec!(0), dec!(-15), dec!(0), dec!(30), dec!(30), None),
-
-            (dec!(-10), dec!(35), dec!(-5), dec!(40), dec!(30), dec!(30), buy),
-            (dec!(10), dec!(10), dec!(21), dec!(10), dec!(30), dec!(30), buy),
-            (dec!(40), dec!(-5), dec!(35), dec!(-10), dec!(30), dec!(30), exit_buy),
-            (dec!(-20), dec!(-5), dec!(-25), dec!(-10), dec!(50), dec!(30), None),
-
-            (dec!(10), dec!(-35), dec!(5), dec!(-40), dec!(30), dec!(30), sell),
-            (dec!(-10), dec!(-10), dec!(-21), dec!(-10), dec!(30), dec!(30), sell),
-            (dec!(-40), dec!(5), dec!(-35), dec!(10), dec!(30), dec!(30), exit_sell),
-            (dec!(20), dec!(5), dec!(25), dec!(10), dec!(50), dec!(30), None),
-        ];
-
-        for case in cases {
-            let (p_macd, p_macd_trend, l_macd, l_macd_trend, el, exl, expected) = case;
-            let actual = MACD::signal(p_macd, p_macd_trend, l_macd, l_macd_trend, el, exl);
-
-            assert_eq!(
-                actual, expected,
-                "{} {} -> {} {} expected {:?} got {:?}",
-                p_macd, p_macd_trend, l_macd, l_macd_trend, expected, actual
-            );
-        }
     }
 }
