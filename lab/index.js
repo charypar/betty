@@ -141,9 +141,9 @@ const lab = async () => {
       sel
         .enter()
         .attr("fill", (d) => {
-          if (d.sentiment.indexOf("Bullish") != -1) {
+          if (d.trend.indexOf("Bullish") != -1) {
             return green;
-          } else if (d.sentiment.indexOf("Bearish") != -1) {
+          } else if (d.trend.indexOf("Bearish") != -1) {
             return red;
           } else {
             return foreground;

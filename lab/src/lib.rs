@@ -52,8 +52,7 @@ struct StrategyRecord {
     macd: Decimal,
     macd_signal: Decimal,
     macd_trend: Decimal,
-    sentiment: String,
-    trade_signal: Option<String>,
+    trend: String,
 }
 
 #[derive(Serialize, Debug)]
@@ -95,28 +94,29 @@ pub fn run_test(prices: JsValue, parameters: JsValue) -> JsValue {
         .map(|r| frame_from(r, spread))
         .collect();
 
-    let indicators: Vec<_> = MACD::macd(
-        &price_history,
-        opts.short,
-        opts.long,
-        opts.signal,
-        opts.entry,
-        opts.exit,
-    )
-    .iter()
-    .zip(Donchian::channel(&price_history, opts.channel))
-    .map(|(ts, rs)| StrategyRecord {
-        short_ema: ts.short_ema,
-        long_ema: ts.long_ema,
-        macd: ts.macd,
-        macd_signal: ts.macd_signal,
-        macd_trend: ts.macd_trend,
-        sentiment: format!("{:?}", ts.sentiment),
-        trade_signal: ts.trade_signal.map(|s| format!("{:?}", s)),
-        long_stop: rs.1,
-        short_stop: rs.0,
-    })
-    .collect();
+    let ts = MACD {
+        short: opts.short,
+        long: opts.long,
+        signal: opts.signal,
+        entry_lim: opts.entry,
+        exit_lim: opts.exit,
+    };
+
+    let indicators: Vec<_> = ts
+        .macd(&price_history)
+        .iter()
+        .zip(Donchian::channel(&price_history, opts.channel))
+        .map(|(ts, rs)| StrategyRecord {
+            short_ema: ts.short_ema,
+            long_ema: ts.long_ema,
+            macd: ts.macd,
+            macd_signal: ts.macd_signal,
+            macd_trend: ts.macd_trend,
+            trend: format!("{:?}", ts.trend),
+            long_stop: rs.1,
+            short_stop: rs.0,
+        })
+        .collect();
 
     let result = TestResult {
         indicators,
