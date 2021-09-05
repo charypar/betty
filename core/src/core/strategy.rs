@@ -1,19 +1,33 @@
+use std::convert::TryFrom;
 use std::error::Error;
 use std::fmt::Display;
 
 use super::price::{CurrencyAmount, Points, PriceHistory};
 use super::trade::{Direction, Entry};
 
-// Tading Strategy gives signals for entering and exiting trades based on market trend
+// Tading Strategy estimates the trned of the marekt
 
-pub trait TradingStrategy {
-    fn signal(&self, history: &PriceHistory) -> Option<Signal>;
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Trend {
+    Neutral,
+    Bullish,
+    Bearish,
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub enum Signal {
-    Enter(Direction), // Also considered an exit signal for the opposite direction
-    Exit(Direction),  // Exit only
+impl TryFrom<Trend> for Direction {
+    type Error = &'static str;
+
+    fn try_from(trend: Trend) -> Result<Self, Self::Error> {
+        match trend {
+            Trend::Neutral => Err("Cannot convert Neutral to a trade direction."),
+            Trend::Bullish => Ok(Direction::Buy),
+            Trend::Bearish => Ok(Direction::Sell),
+        }
+    }
+}
+
+pub trait TradingStrategy {
+    fn trend(&self, history: &PriceHistory) -> Trend;
 }
 
 // RiskStrategy decides stop-loss placement and trade size

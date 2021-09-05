@@ -4,9 +4,9 @@ use rust_decimal_macros::dec;
 
 use crate::core::maths::EMAIterator;
 use crate::core::price::PriceHistory;
-use crate::core::strategy::{Signal, TradingStrategy};
-use crate::core::trade::Direction;
+use crate::core::strategy::TradingStrategy;
 use crate::price::Frame;
+use crate::strategy::Trend;
 
 // Moving Average Convergence/Divergence
 
@@ -18,13 +18,6 @@ pub struct MACD {
     pub signal: usize,
     pub entry_lim: Decimal, // enter above this value
     pub exit_lim: Decimal,  // exit below this value
-}
-
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub enum Sentiment {
-    Neutral,
-    Bullish,
-    Bearish,
 }
 
 #[derive(Debug)]
@@ -42,31 +35,21 @@ pub struct MACDValue {
     pub macd: Decimal,
     pub macd_signal: Decimal,
     pub macd_trend: Decimal,
-    pub sentiment: Sentiment,
-    pub trade_signal: Option<Signal>,
+    pub trend: Trend,
 }
 
 impl MACD {
-    pub fn macd(
-        history: &[Frame],
-        short: usize,
-        long: usize,
-        signal: usize,
-        entry_lim: Decimal,
-        exit_lim: Decimal,
-    ) -> Vec<MACDValue> {
+    pub fn macd(&self, history: &[Frame]) -> Vec<MACDValue> {
         let points = history.into_iter().map(|it| it.close.mid_price());
 
-        let short_ema = points.clone().into_iter().ema(short);
-        let long_ema = points.clone().into_iter().ema(long);
-
+        let short_ema = points.clone().into_iter().ema(self.short);
+        let long_ema = points.clone().into_iter().ema(self.long);
         let macd = short_ema
             .clone()
             .zip(long_ema.clone())
             .map(|(s, l)| s - l)
             .clone();
-        let macd_sig = macd.clone().ema(signal);
-
+        let macd_sig = macd.clone().ema(self.signal);
         let macd_trend = macd.clone().zip(macd_sig.clone()).map(|(m, s)| m - s);
 
         let all = short_ema
@@ -82,22 +65,16 @@ impl MACD {
                 macd_trend: mt,
             });
 
-        let length = [short, long, signal].iter().max().unwrap().clone();
-        let needed = Self::samples_needed(length, EMA_ERROR) + 1;
-
         let mut output: Vec<MACDValue> = Vec::with_capacity(history.len());
 
-        for (i, indicators) in all.enumerate() {
-            let (sentiment, signal) = if let Some(last) = output.last() {
-                let sentiment = Self::sentiment(last.sentiment, &indicators, entry_lim, exit_lim);
-
-                if i < needed {
-                    (sentiment, None) // No signal until we have enough data for the EMAs
-                } else {
-                    (sentiment, Self::signal(last.sentiment, sentiment))
-                }
+        for indicators in all {
+            let trend = if let Some(last) = output.last() {
+                // Note we're not worried about having enough history in here,
+                // this is the raw indicators, the TradingStrategy implementation
+                // further down is used for actual decision making
+                Self::trend(last.trend, &indicators, self.entry_lim, self.exit_lim)
             } else {
-                (Sentiment::Neutral, None)
+                Trend::Neutral
             };
 
             let value = MACDValue {
@@ -106,8 +83,7 @@ impl MACD {
                 macd: indicators.macd,
                 macd_signal: indicators.macd_signal,
                 macd_trend: indicators.macd_trend,
-                sentiment: sentiment,
-                trade_signal: signal,
+                trend,
             };
 
             output.push(value);
@@ -116,36 +92,14 @@ impl MACD {
         output
     }
 
-    fn sentiment(
-        sentiment: Sentiment,
-        iv: &Indicators,
-        entry_lim: Decimal,
-        exit_lim: Decimal,
-    ) -> Sentiment {
-        match sentiment {
+    fn trend(trend: Trend, iv: &Indicators, entry_lim: Decimal, exit_lim: Decimal) -> Trend {
+        match trend {
             // TODO these rules need more work
-            Sentiment::Bearish | Sentiment::Neutral if iv.macd > entry_lim => Sentiment::Bullish,
-            Sentiment::Bullish | Sentiment::Neutral if iv.macd < -entry_lim => Sentiment::Bearish,
-            Sentiment::Bullish if iv.macd <= exit_lim => Sentiment::Neutral,
-            Sentiment::Bearish if iv.macd >= -exit_lim => Sentiment::Neutral,
-            _ => sentiment,
-        }
-    }
-
-    fn signal(last_sentiment: Sentiment, current_sentiment: Sentiment) -> Option<Signal> {
-        if last_sentiment == current_sentiment {
-            return None;
-        }
-
-        match (last_sentiment, current_sentiment) {
-            (Sentiment::Bullish, Sentiment::Neutral) => Some(Signal::Exit(Direction::Buy)),
-            (Sentiment::Bearish, Sentiment::Neutral) => Some(Signal::Exit(Direction::Sell)),
-            (_, Sentiment::Bullish) => Some(Signal::Enter(Direction::Buy)),
-            (_, Sentiment::Bearish) => Some(Signal::Enter(Direction::Sell)),
-            _ => panic!(
-                "Unexpected sentiment change {:?} -> {:?}",
-                last_sentiment, current_sentiment
-            ),
+            Trend::Bearish | Trend::Neutral if iv.macd > entry_lim => Trend::Bullish,
+            Trend::Bullish | Trend::Neutral if iv.macd < -entry_lim => Trend::Bearish,
+            Trend::Bullish if iv.macd <= exit_lim => Trend::Neutral,
+            Trend::Bearish if iv.macd >= -exit_lim => Trend::Neutral,
+            _ => trend,
         }
     }
 
@@ -156,7 +110,7 @@ impl MACD {
 }
 
 impl TradingStrategy for MACD {
-    fn signal(&self, history: &PriceHistory) -> Option<Signal> {
+    fn trend(&self, history: &PriceHistory) -> Trend {
         let length = [self.short, self.long, self.signal]
             .iter()
             .max()
@@ -166,7 +120,7 @@ impl TradingStrategy for MACD {
 
         if take > history.history.len() {
             // not enough history to make safe judgement
-            return None;
+            return Trend::Neutral;
         }
 
         let price: Vec<Frame> = history
@@ -177,16 +131,9 @@ impl TradingStrategy for MACD {
             .cloned()
             .collect();
 
-        let macd = Self::macd(
-            &price,
-            self.short,
-            self.long,
-            self.signal,
-            self.entry_lim,
-            self.exit_lim,
-        );
+        let macd = self.macd(&price);
 
-        macd.last().unwrap().trade_signal
+        macd.last().unwrap().trend
     }
 }
 

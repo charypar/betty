@@ -31,6 +31,20 @@ pub struct Entry {
     pub time: DateTime<Utc>,
 }
 
+impl Entry {
+    // Correspondinge exit to this entry
+    pub fn exit(&self, price: Price, time: DateTime<Utc>) -> Exit {
+        Exit {
+            position_id: self.position_id.clone(),
+            price: match self.direction {
+                Direction::Buy => price.bid,
+                Direction::Sell => price.ask,
+            },
+            time,
+        }
+    }
+}
+
 #[derive(Debug, PartialEq, Clone)]
 pub struct Exit {
     pub position_id: String,
@@ -161,17 +175,6 @@ impl Trade {
             price_diff,
             profit,
             risk_reward: (profit / risk).unwrap(), // both numbers are derived from o.size
-        }
-    }
-
-    pub fn exit(&self, price: Price, time: DateTime<Utc>) -> Exit {
-        Exit {
-            position_id: self.id.clone(),
-            price: match self.direction {
-                Direction::Buy => price.bid,
-                Direction::Sell => price.ask,
-            },
-            time,
         }
     }
 }

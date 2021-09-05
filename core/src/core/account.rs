@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use std::convert::TryInto;
 use std::error::Error;
 use std::fmt::Display;
 
@@ -6,8 +7,8 @@ use rust_decimal::Decimal;
 
 use crate::core::market::Market;
 use crate::core::price::{CurrencyAmount, Frame, Price, PriceHistory, Resolution};
-use crate::core::strategy::{RiskStrategy, Signal, TradingStrategy};
-use crate::core::trade::{Direction, Entry, Exit, Order, Trade, TradeStatus};
+use crate::core::strategy::{RiskStrategy, TradingStrategy, Trend};
+use crate::core::trade::{Direction, Entry, Order, Trade};
 
 // Account holds the state of the trading account and history of all the orders placed
 // in response to price updates.
@@ -23,13 +24,13 @@ where
     pub risk_strategy: RS,
     pub risk_per_trade: Decimal,
     closed_trades: Vec<Trade>,
-    live_trades: Vec<Entry>,
+    live_trade: Option<Entry>,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum AccountError {
+    DuplicateEntry(String),
     NoMatchingEntry(String),
-    DuplicatePosition(String),
     PositionAlreadyClosed(String),
 }
 
@@ -38,8 +39,8 @@ impl Error for AccountError {}
 impl Display for AccountError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            AccountError::DuplicateEntry(s) => writeln!(f, "Duplicate position {}", s),
             AccountError::NoMatchingEntry(s) => writeln!(f, "No matching entry {}", s),
-            AccountError::DuplicatePosition(s) => writeln!(f, "Duplicate position {}", s),
             AccountError::PositionAlreadyClosed(s) => writeln!(f, "Position {} alerady closed", s),
         }
     }
@@ -69,21 +70,20 @@ where
                 history: VecDeque::new(),
             },
             closed_trades: vec![],
-            live_trades: vec![],
+            live_trade: None,
         }
     }
 
     pub fn trade_log(&self, latest_price: Price) -> Vec<Trade> {
-        let live_trades = self
-            .live_trades
-            .iter()
-            .map(|entry| Trade::open(entry, latest_price));
-
         let mut trades: Vec<Trade> = self
             .closed_trades
             .iter()
             .cloned()
-            .chain(live_trades)
+            .chain(
+                self.live_trade
+                    .as_ref()
+                    .map(|e| Trade::open(&e, latest_price)),
+            )
             .collect();
 
         trades.sort_by(|a, b| a.entry_time.cmp(&b.entry_time));
@@ -97,47 +97,49 @@ where
         self.price_history.history.push_front(frame);
 
         let time = frame.close_time;
-        let signal = self.trading_strategy.signal(&self.price_history);
-        let open_trades = self
-            .trade_log(frame.close)
-            .into_iter()
-            .filter(|t| t.status == TradeStatus::Open);
+        let trend = self.trading_strategy.trend(&self.price_history);
 
         let mut orders = vec![];
 
-        for t in open_trades {
-            // Stop
-            match t.direction {
-                Direction::Buy if frame.low.bid < t.stop => {
-                    orders.push(Order::Stop(t.exit(frame.close, time)));
+        // Handle exits first
+        if let Some(lt) = &self.live_trade {
+            match trend {
+                // Stop - thes are only in the match so we don't generate both stop and close at the same time
+                _ if lt.direction == Direction::Buy && frame.low.bid < lt.stop => {
+                    orders.push(Order::Stop(lt.exit(frame.close, time)));
                 }
-                Direction::Sell if frame.high.ask > t.stop => {
-                    orders.push(Order::Stop(t.exit(frame.close, time)));
+                _ if lt.direction == Direction::Sell && frame.high.ask > lt.stop => {
+                    orders.push(Order::Stop(lt.exit(frame.close, time)));
                 }
-                _ => (),
-            }
-
-            // Exit
-            match signal {
-                Some(Signal::Exit(direction)) if t.direction == direction => {
-                    orders.push(Order::Close(t.exit(frame.close, time)));
+                // Exit
+                Trend::Neutral => {
+                    orders.push(Order::Close(lt.exit(frame.close, time)));
                 }
-                Some(Signal::Enter(direction)) if t.direction != direction => {
-                    orders.push(Order::Close(t.exit(frame.close, time)));
+                // Reverse
+                Trend::Bullish if lt.direction == Direction::Sell => {
+                    orders.push(Order::Close(lt.exit(frame.close, time)));
                 }
+                Trend::Bearish if lt.direction == Direction::Buy => {
+                    orders.push(Order::Close(lt.exit(frame.close, time)));
+                }
+                // Stay
                 _ => (),
             }
         }
 
-        // Enter a new trade on signal
-        if let Some(Signal::Enter(direction)) = &signal {
-            let risk = self.balance * self.risk_per_trade;
+        if self.live_trade.is_none() || orders.len() > 0 {
+            match trend {
+                Trend::Bullish | Trend::Bearish => {
+                    let risk = self.balance * self.risk_per_trade;
+                    let dir = trend
+                        .try_into()
+                        .expect("Trend could not convert to direction");
 
-            if let Ok(entry) = self
-                .risk_strategy
-                .entry(*direction, &self.price_history, risk)
-            {
-                orders.push(Order::Open(entry));
+                    if let Ok(entry) = self.risk_strategy.entry(dir, &self.price_history, risk) {
+                        orders.push(Order::Open(entry));
+                    }
+                }
+                _ => (),
             }
         }
 
@@ -146,57 +148,32 @@ where
 
     // Log an order that has been placed
     pub fn log_order(&mut self, order: Order) -> Result<(), AccountError> {
-        match order {
-            Order::Open(entry) => {
-                self.check_entry(&entry)?;
+        match (order, &self.live_trade) {
+            (Order::Open(entry), None) => {
+                self.live_trade = Some(entry);
 
-                return Ok(self.live_trades.push(entry));
+                return Ok(());
             }
-            Order::Close(exit) | Order::Stop(exit) => {
-                let matching_entry = self.remove_matching_entry(&exit)?;
-
-                if let Some(entry) = matching_entry {
-                    let trade = Trade::closed(&entry, &exit);
-                    self.balance += trade.profit;
-
-                    return Ok(self.closed_trades.push(trade));
+            (Order::Open(_), Some(entry)) => {
+                return Err(AccountError::DuplicateEntry(entry.position_id.clone()));
+            }
+            (Order::Close(exit) | Order::Stop(exit), None) => {
+                if self.closed_trades.iter().any(|t| t.id == exit.position_id) {
+                    return Err(AccountError::PositionAlreadyClosed(
+                        exit.position_id.clone(),
+                    ));
                 } else {
                     return Err(AccountError::NoMatchingEntry(exit.position_id.clone()));
                 }
             }
+            (Order::Close(exit) | Order::Stop(exit), Some(entry)) => {
+                let trade = Trade::closed(&entry, &exit);
+                self.balance += trade.profit;
+                self.live_trade = None;
+
+                return Ok(self.closed_trades.push(trade));
+            }
         };
-    }
-
-    // FIXME these are all O(n) in number of orders
-    // They can be improved by indexing orders by position_id when logging them.
-
-    fn check_entry(&self, entry: &Entry) -> Result<(), AccountError> {
-        for e in &self.live_trades {
-            if entry.position_id == e.position_id {
-                // There already is an entry for this position
-                return Err(AccountError::DuplicatePosition(entry.position_id.clone()));
-            }
-        }
-
-        Ok(())
-    }
-
-    fn remove_matching_entry(&mut self, exit: &Exit) -> Result<Option<Entry>, AccountError> {
-        for t in &self.closed_trades {
-            if t.id == exit.position_id {
-                return Err(AccountError::PositionAlreadyClosed(t.id.clone()));
-            }
-        }
-
-        for (i, e) in self.live_trades.iter().enumerate() {
-            if exit.position_id == e.position_id {
-                let entry = self.live_trades.remove(i);
-
-                return Ok(Some(entry));
-            }
-        }
-
-        Ok(None)
     }
 }
 
@@ -205,8 +182,9 @@ mod test {
     use super::*;
 
     use crate::core::price::{Points, Price};
-    use crate::core::strategy::{RiskStrategyError, Signal};
+    use crate::core::strategy::RiskStrategyError;
     use crate::core::trade::{Direction, Entry, Exit, TradeOutcome, TradeStatus};
+    use crate::strategy::Trend;
 
     use chrono::{DateTime, Duration, TimeZone, Timelike, Utc};
     use iso_currency::Currency::GBP;
@@ -280,20 +258,20 @@ mod test {
     }
 
     #[test]
-    fn opens_a_position_based_on_a_signal() -> Result<(), RiskStrategyError> {
-        let long = LongEntry {};
+    fn opens_a_position_based_on_a_trend() -> Result<(), RiskStrategyError> {
+        let bullish_strategy = Bullish {};
         let mut long_account = Account::new(
             market(),
-            long,
+            bullish_strategy,
             risk_strategy(),
             dec!(0.01),
             CurrencyAmount::new(dec!(1000), GBP),
             Resolution::Minute(10),
         );
-        let short = ShortEntry {};
+        let bearish_strategy = Bearish {};
         let mut short_account = Account::new(
             market(),
-            short,
+            bearish_strategy,
             risk_strategy(),
             dec!(0.01),
             CurrencyAmount::new(dec!(1000), GBP),
@@ -322,11 +300,11 @@ mod test {
     }
 
     #[test]
-    fn closes_a_position_based_on_an_exit_signal() -> Result<(), AccountError> {
-        let long = LongExit {};
+    fn closes_a_position_based_on_a_trend_ending() -> Result<(), AccountError> {
+        let neutral_strategy = Neutral {};
         let mut long_account = Account::new(
             market(),
-            long,
+            neutral_strategy,
             risk_strategy(),
             dec!(0.01),
             CurrencyAmount::new(dec!(1000), GBP),
@@ -342,10 +320,10 @@ mod test {
         };
         long_account.log_order(Order::Open(long_open.clone()))?;
 
-        let short = ShortExit {};
+        let neutral_strategy = Neutral {};
         let mut short_account = Account::new(
             market(),
-            short,
+            neutral_strategy,
             risk_strategy(),
             dec!(0.01),
             CurrencyAmount::new(dec!(1000), GBP),
@@ -383,11 +361,11 @@ mod test {
     }
 
     #[test]
-    fn reverses_a_positon_based_on_an_entry_signal() -> Result<(), ()> {
-        let long = ShortEntry {};
+    fn reverses_a_positon_based_on_tred_reversal() -> Result<(), ()> {
+        let bearish_strategy = Bearish {};
         let mut long_account = Account::new(
             market(),
-            long,
+            bearish_strategy,
             risk_strategy(),
             dec!(0.01),
             CurrencyAmount::new(dec!(1000), GBP),
@@ -402,13 +380,13 @@ mod test {
             time: date(),
         };
         long_account
-            .log_order(Order::Open(long_open.clone()))
+            .log_order(Order::Open(long_open))
             .map_err(|_| ())?;
 
-        let short = LongEntry {};
+        let bullish_strategy = Bullish {};
         let mut short_account = Account::new(
             market(),
-            short,
+            bullish_strategy,
             risk_strategy(),
             dec!(0.01),
             CurrencyAmount::new(dec!(1000), GBP),
@@ -423,7 +401,7 @@ mod test {
             time: date(),
         };
         short_account
-            .log_order(Order::Open(short_open.clone()))
+            .log_order(Order::Open(short_open))
             .map_err(|_| ())?;
 
         let expected_long = vec![
@@ -628,9 +606,9 @@ mod test {
 
         account.log_order(Order::Open(open_1))?;
         account.log_order(Order::Stop(close_1))?;
-        account.log_order(Order::Open(open_3))?; // out of order should not matter
         account.log_order(Order::Open(open_2))?;
         account.log_order(Order::Stop(close_2))?;
+        account.log_order(Order::Open(open_3))?;
 
         let actual = account.trade_log(latest_price);
 
@@ -695,7 +673,7 @@ mod test {
         account.log_order(Order::Open(open_1.clone()))?;
 
         assert_eq!(
-            Err(AccountError::DuplicatePosition("1".to_string())),
+            Err(AccountError::DuplicateEntry("1".to_string())),
             account.log_order(Order::Open(open_1))
         );
 
@@ -759,40 +737,30 @@ mod test {
     }
 
     // Fixtures
-    struct LongEntry;
-    impl TradingStrategy for LongEntry {
-        fn signal(&self, _history: &PriceHistory) -> Option<Signal> {
-            Some(Signal::Enter(Direction::Buy))
+
+    struct Neutral {}
+    impl TradingStrategy for Neutral {
+        fn trend(&self, _history: &PriceHistory) -> crate::strategy::Trend {
+            Trend::Neutral
         }
     }
 
-    struct LongExit;
-    impl TradingStrategy for LongExit {
-        fn signal(&self, _history: &PriceHistory) -> Option<Signal> {
-            Some(Signal::Exit(Direction::Buy))
-        }
-    }
-    struct ShortEntry;
-    impl TradingStrategy for ShortEntry {
-        fn signal(&self, _history: &PriceHistory) -> Option<Signal> {
-            Some(Signal::Enter(Direction::Sell))
-        }
-    }
-    struct ShortExit;
-    impl TradingStrategy for ShortExit {
-        fn signal(&self, _history: &PriceHistory) -> Option<Signal> {
-            Some(Signal::Exit(Direction::Sell))
+    struct Bullish {}
+    impl TradingStrategy for Bullish {
+        fn trend(&self, _history: &PriceHistory) -> crate::strategy::Trend {
+            Trend::Bullish
         }
     }
 
-    struct NoSignal;
-    impl TradingStrategy for NoSignal {
-        fn signal(&self, _history: &PriceHistory) -> Option<Signal> {
-            None
+    struct Bearish {}
+    impl TradingStrategy for Bearish {
+        fn trend(&self, _history: &PriceHistory) -> crate::strategy::Trend {
+            Trend::Bearish
         }
     }
 
-    struct NoRisk;
+    struct NoRisk {}
+
     impl RiskStrategy for NoRisk {
         fn stop(
             &self,
@@ -803,7 +771,7 @@ mod test {
         }
     }
 
-    fn account() -> Account<NoSignal, NoRisk> {
+    fn account() -> Account<Neutral, NoRisk> {
         Account::new(
             market(),
             trading_strategy(),
@@ -823,8 +791,8 @@ mod test {
         }
     }
 
-    fn trading_strategy() -> NoSignal {
-        NoSignal {}
+    fn trading_strategy() -> Neutral {
+        Neutral {}
     }
 
     fn risk_strategy() -> NoRisk {
