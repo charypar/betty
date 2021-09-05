@@ -28,13 +28,13 @@ fn main() {
     };
 
     let ts = MACD {
-        short: 16,
-        long: 42,
-        signal: 20,
-        entry_lim: dec!(20),
-        exit_lim: dec!(10),
+        short: 20,
+        long: 50,
+        signal: 10,
+        entry_lim: dec!(40),
+        exit_lim: dec!(40),
     };
-    let rs = Donchian { channel_length: 50 };
+    let rs = Donchian { channel_length: 20 };
 
     let opening_balance = CurrencyAmount::new(dec!(20000.00), Currency::GBP);
 
@@ -63,7 +63,8 @@ where
         for order in account.update_price(*price) {
             match order {
                 Order::Open(entry) => {
-                    if let Err(_) = account.market.validate_entry(&entry, account.balance) {
+                    if let Err(e) = account.market.validate_entry(&entry, account.balance) {
+                        println!("Cannot enter position: {}", e);
                         continue;
                     }
 
