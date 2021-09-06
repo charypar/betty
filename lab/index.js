@@ -25,8 +25,8 @@ const lab = async () => {
   await init();
 
   const opts = {
-    short: 20, // Short EMA
-    long: 50, // Long EMA
+    short: 12, // Short EMA
+    long: 42, // Long EMA
     signal: 10, // MACD signal EMA
     entry: 40, // entry threshold
     exit: 40, // exit threshold

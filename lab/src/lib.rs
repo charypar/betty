@@ -1,13 +1,17 @@
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, Utc};
+use iso_currency::Currency;
 use rust_decimal::Decimal;
 use rust_decimal_macros::dec;
 use wasm_bindgen::prelude::*;
 
 use betty::{
-    price::{Frame, Price},
+    account::Account,
+    backtest::Backtest,
+    market::Market,
+    price::{CurrencyAmount, Frame, Price, Resolution},
     strategies::{Donchian, MACD},
 };
-use serde::{Deserialize, Deserializer, Serialize};
+use serde::{Deserialize, Serialize};
 
 #[wasm_bindgen]
 extern "C" {
@@ -24,7 +28,6 @@ fn console_log(s: String) {
 
 #[derive(Deserialize, Debug, Clone)]
 struct PriceRecord {
-    #[serde(deserialize_with = "parse_date")]
     date: DateTime<Utc>,
     open: Decimal,
     high: Decimal,
@@ -57,11 +60,12 @@ struct StrategyRecord {
 
 #[derive(Serialize, Debug)]
 struct Trade {
-    open_date: String, // FIXME
+    open_date: DateTime<Utc>,
     open_price: Decimal,
     stop: Decimal,
-    close_date: String, // FIXME
-    close_price: Decimal,
+    close_date: Option<DateTime<Utc>>,
+    close_price: Option<Decimal>,
+    outcome: String,
 }
 
 #[derive(Serialize, Debug)]
@@ -93,6 +97,10 @@ pub fn run_test(prices: JsValue, parameters: JsValue) -> JsValue {
         .iter()
         .map(|r| frame_from(r, spread))
         .collect();
+    let latest_price = price_history
+        .last()
+        .expect("Expected at least one price frame")
+        .close;
 
     let ts = MACD {
         short: opts.short,
@@ -101,11 +109,31 @@ pub fn run_test(prices: JsValue, parameters: JsValue) -> JsValue {
         entry_lim: opts.entry,
         exit_lim: opts.exit,
     };
+    let rs = Donchian {
+        channel_length: opts.channel,
+    };
 
-    let indicators: Vec<_> = ts
+    let market = Market {
+        code: "GDAXI".to_string(),
+        margin_factor: dec!(0.05),
+        min_deal_size: CurrencyAmount::new(dec!(0.50), Currency::GBP),
+        min_stop_distance: dec!(12),
+    };
+
+    let account = Account::new(
+        market,
+        ts,
+        rs,
+        dec!(0.03),
+        CurrencyAmount::new(dec!(20000), Currency::GBP),
+        Resolution::Day,
+    );
+
+    let indicators: Vec<_> = account
+        .trading_strategy
         .macd(&price_history)
         .iter()
-        .zip(Donchian::channel(&price_history, opts.channel))
+        .zip(account.risk_strategy.channel(&price_history))
         .map(|(ts, rs)| StrategyRecord {
             short_ema: ts.short_ema,
             long_ema: ts.long_ema,
@@ -118,10 +146,24 @@ pub fn run_test(prices: JsValue, parameters: JsValue) -> JsValue {
         })
         .collect();
 
-    let result = TestResult {
-        indicators,
-        trades: vec![], // TODO
-    };
+    let mut test = Backtest::new(account);
+    test.run(&price_history);
+
+    let trades = test
+        .account
+        .trade_log(latest_price)
+        .iter()
+        .map(|t| Trade {
+            open_date: t.entry_time,
+            open_price: t.entry_price,
+            stop: t.stop,
+            close_date: t.exit_time,
+            close_price: t.exit_price,
+            outcome: format!("{}", t.outcome),
+        })
+        .collect();
+
+    let result = TestResult { indicators, trades };
 
     JsValue::from_serde(&result).unwrap()
 }
@@ -134,16 +176,4 @@ fn frame_from(price_record: &PriceRecord, spread: Decimal) -> Frame {
         low: Price::new_mid(price_record.low, spread),
         close: Price::new_mid(price_record.close, spread),
     }
-}
-
-const DATE_FORMAT: &'static str = "%Y-%m-%dT%H:%M:%S.%fZ";
-
-fn parse_date<'de, D>(de: D) -> Result<DateTime<Utc>, D::Error>
-where
-    D: Deserializer<'de>,
-{
-    let s = String::deserialize(de)?;
-
-    Utc.datetime_from_str(&s, DATE_FORMAT)
-        .map_err(serde::de::Error::custom)
 }

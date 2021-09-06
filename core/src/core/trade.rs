@@ -52,7 +52,7 @@ pub struct Exit {
     pub time: DateTime<Utc>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum Order {
     Open(Entry),
     Close(Exit),

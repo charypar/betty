@@ -69,10 +69,13 @@ version = "0.4.19"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "670ad68c9088c2a963aaa298cb369688cf3f9465ce5e2d4ca10e6e0098a1ce73"
 dependencies = [
+ "js-sys",
  "libc",
  "num-integer",
  "num-traits",
+ "serde",
  "time",
+ "wasm-bindgen",
  "winapi",
 ]
 
@@ -138,11 +141,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd25036021b0de88a0aff6b850051563c6516d0bf53f8638938edbb9de732736"
 
 [[package]]
+name = "js-sys"
+version = "0.3.52"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ce791b7ca6638aae45be056e068fc756d871eb3b3b10b8efa62d1c9cec616752"
+dependencies = [
+ "wasm-bindgen",
+]
+
+[[package]]
 name = "lab"
 version = "0.1.0"
 dependencies = [
  "betty",
  "chrono",
+ "iso_currency",
  "rust_decimal",
  "rust_decimal_macros",
  "serde",

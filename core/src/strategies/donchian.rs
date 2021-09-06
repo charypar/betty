@@ -12,15 +12,15 @@ pub struct Donchian {
 }
 
 impl Donchian {
-    pub fn channel(history: &[Frame], length: usize) -> Vec<(Decimal, Decimal)> {
+    pub fn channel(&self, history: &[Frame]) -> Vec<(Decimal, Decimal)> {
         // minimum and maximum are order independent, so we use this as a primitive ring-buffer
-        let mut buffer = vec![(Decimal::MAX, Decimal::MIN); length];
+        let mut buffer = vec![(Decimal::MAX, Decimal::MIN); self.channel_length];
 
         history
             .iter()
             .enumerate()
             .map(|(idx, frame)| {
-                let buf_idx = idx % length;
+                let buf_idx = idx % self.channel_length;
 
                 // The lower end of the channel is a bid price - we are selling to exit a long position that didn't go our way
                 // The higher end of the channel is an ask price - we are buying to exit a short position that didn't go our way
@@ -98,10 +98,12 @@ mod test {
             10,
         );
 
+        let strategy = Donchian { channel_length: 1 };
+
         let frames: Vec<Frame> = history.history.into();
 
         let expected = vec![(dec!(599), dec!(1001)); 10];
-        let actual = Donchian::channel(&frames, 1);
+        let actual = strategy.channel(&frames);
 
         assert_eq!(actual, expected);
     }

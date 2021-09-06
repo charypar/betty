@@ -4,3 +4,5 @@ pub mod maths;
 pub mod price;
 pub mod strategy;
 pub mod trade;
+
+pub mod backtest;
